@@ -25,7 +25,7 @@ import { AsgardeoJavaScriptClient } from "@asgardeo/javascript";
 import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
-import { ChatOpenAI } from "@langchain/openai";
+import { ChatOpenAI, ChatOpenAICompletions } from "@langchain/openai";
 import { MultiServerMCPClient } from "@langchain/mcp-adapters";
 import dotenv from "dotenv";
 import { dirname, resolve } from "node:path";
@@ -255,7 +255,7 @@ const allowedCorsOrigin = (() => {
     }
 })();
 
-type ModelProvider = "gemini" | "openai" | "anthropic" | "deepseek";
+type ModelProvider = "gemini" | "openai" | "anthropic" | "deepseek" | "openai-compatible";
 
 async function anthropicFetch(url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): Promise<Response> {
     if (init?.body && typeof init.body === "string") {
@@ -268,6 +268,165 @@ async function anthropicFetch(url: Parameters<typeof fetch>[0], init?: Parameter
     return fetch(url, init);
 }
 
+// --- openai-compatible: any OpenAI chat-completions endpoint, e.g. an API gateway in front
+// of Azure OpenAI, called with an OAuth2 client-credentials access token (or a static key).
+
+const openAICompatibleConfig = {
+    // The SDK appends /chat/completions; accept the full endpoint URL too.
+    baseUrl: getEnv("LLM_BASE_URL").replace(/\/+$/, "").replace(/\/chat\/completions$/, ""),
+    tokenUrl: getEnv("LLM_TOKEN_URL"),
+    clientId: getEnv("LLM_CLIENT_ID"),
+    clientSecret: getEnv("LLM_CLIENT_SECRET"),
+    tokenScope: getEnv("LLM_TOKEN_SCOPE"),
+    apiKey: getEnv("LLM_API_KEY"),
+};
+
+type ClientCredentialsTokenSource = {
+    getToken: (forceRefresh?: boolean) => Promise<string>;
+    invalidate: (token: string) => void;
+};
+
+function createClientCredentialsTokenSource(): ClientCredentialsTokenSource {
+    const { tokenUrl, clientId, clientSecret, tokenScope } = openAICompatibleConfig;
+    let cached: { token: string; expiresAt: number } | null = null;
+    let pending: Promise<{ token: string; expiresAt: number }> | null = null;
+
+    const requestToken = async () => {
+        const body = new URLSearchParams({ grant_type: "client_credentials" });
+
+        if (tokenScope) {
+            body.set("scope", tokenScope);
+        }
+
+        const response = await fetch(tokenUrl, {
+            body,
+            headers: {
+                Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            method: "POST",
+            signal: AbortSignal.timeout(30000),
+        });
+        const json = await response.json().catch(() => ({})) as {
+            access_token?: string;
+            expires_in?: number;
+            error?: string;
+            error_description?: string;
+        };
+
+        if (!response.ok || !json.access_token) {
+            throw new Error(`LLM token request failed (${response.status}): ${json.error_description ?? json.error ?? "no access token"}`);
+        }
+
+        const expiresAt = typeof json.expires_in === "number"
+            ? Date.now() + json.expires_in * 1000
+            : getTokenExpiryMs(json.access_token);
+
+        logger.info({ expiresAt: new Date(expiresAt).toISOString() }, "LLM access token obtained");
+
+        return { token: json.access_token, expiresAt };
+    };
+
+    return {
+        // Cached until a minute before expiry (TOKEN_EXPIRY_SKEW_MS); concurrent callers share one request.
+        async getToken(forceRefresh = false) {
+            if (!forceRefresh && cached && isTokenValid(cached.expiresAt)) {
+                return cached.token;
+            }
+
+            if (!pending) {
+                pending = requestToken()
+                    .then((fresh) => {
+                        cached = fresh;
+                        return fresh;
+                    })
+                    .finally(() => {
+                        pending = null;
+                    });
+            }
+
+            return (await pending).token;
+        },
+        invalidate(token: string) {
+            if (cached?.token === token) {
+                cached = null;
+            }
+        },
+    };
+}
+
+// gpt-5.x rejects a non-default temperature/top_p and wants max_completion_tokens.
+function adaptChatCompletionsBody(body: BodyInit | null | undefined) {
+    if (typeof body !== "string") {
+        return body;
+    }
+
+    try {
+        const json = JSON.parse(body) as Record<string, unknown>;
+
+        delete json.temperature;
+        delete json.top_p;
+
+        if (json.max_tokens !== undefined && json.max_completion_tokens === undefined) {
+            json.max_completion_tokens = json.max_tokens;
+        }
+
+        delete json.max_tokens;
+
+        return JSON.stringify(json);
+    } catch {
+        return body;
+    }
+}
+
+// Sends each request with a current access token; on a 401 refreshes the token and retries once.
+function createOpenAICompatibleFetch(tokenSource: ClientCredentialsTokenSource | null): typeof fetch {
+    return async (input, init = {}) => {
+        const body = adaptChatCompletionsBody(init.body);
+
+        if (!tokenSource) {
+            return fetch(input, { ...init, body });
+        }
+
+        const send = (token: string) => {
+            const headers = new Headers(init.headers);
+
+            headers.set("Authorization", `Bearer ${token}`);
+
+            return fetch(input, { ...init, body, headers });
+        };
+
+        const token = await tokenSource.getToken();
+        const response = await send(token);
+
+        if (response.status !== 401) {
+            return response;
+        }
+
+        logger.warn("LLM endpoint returned 401 - refreshing the access token and retrying once");
+        tokenSource.invalidate(token);
+        await response.body?.cancel().catch(() => {});
+
+        return send(await tokenSource.getToken(true));
+    };
+}
+
+function createOpenAICompatibleModel(model: string) {
+    const { baseUrl, tokenUrl, apiKey } = openAICompatibleConfig;
+    const tokenSource = tokenUrl ? createClientCredentialsTokenSource() : null;
+
+    // Chat Completions only: gateways in front of Azure OpenAI rarely expose the Responses API.
+    return new ChatOpenAICompletions({
+        // With a token URL the SDK's key is replaced per request by createOpenAICompatibleFetch.
+        apiKey: tokenSource ? "unused-oauth2-client-credentials" : apiKey,
+        model,
+        configuration: {
+            baseURL: baseUrl,
+            fetch: createOpenAICompatibleFetch(tokenSource),
+        },
+    });
+}
+
 function createModel() {
     const provider = (getEnv("MODEL_PROVIDER") || "gemini").toLowerCase() as ModelProvider;
     const modelName = getEnv("MODEL_NAME");
@@ -276,6 +435,7 @@ function createModel() {
         anthropic: "claude-sonnet-4-6",
         deepseek: "deepseek-chat",
         gemini: "gemini-3.1-flash-lite",
+        "openai-compatible": "gpt-5.2",
     };
     const resolvedModel = modelName || defaultModelNames[provider] || defaultModelNames.gemini;
 
@@ -285,6 +445,8 @@ function createModel() {
     }, "LLM provider initialized");
 
     switch (provider) {
+        case "openai-compatible":
+            return createOpenAICompatibleModel(resolvedModel);
         case "openai":
             return new ChatOpenAI({
                 apiKey: getEnv("OPENAI_API_KEY"),
@@ -1126,8 +1288,17 @@ function includeClientSecretInAgentAuthorizeRequest(client: AsgardeoJavaScriptCl
     };
 }
 
-function validateAgentConfiguration() {
-    const providerApiKeyEnvVar: Record<ModelProvider, string> = {
+function getModelProviderRequiredValues(): Record<string, string | undefined> {
+    if (modelProvider === "openai-compatible") {
+        const { baseUrl, tokenUrl, clientId, clientSecret, apiKey } = openAICompatibleConfig;
+
+        // Either an OAuth2 client (token URL + client credentials) or a static API key.
+        return tokenUrl || !apiKey
+            ? { LLM_BASE_URL: baseUrl, LLM_TOKEN_URL: tokenUrl, LLM_CLIENT_ID: clientId, LLM_CLIENT_SECRET: clientSecret }
+            : { LLM_BASE_URL: baseUrl, LLM_API_KEY: apiKey };
+    }
+
+    const providerApiKeyEnvVar: Record<Exclude<ModelProvider, "openai-compatible">, string> = {
         gemini: "GOOGLE_API_KEY",
         openai: "OPENAI_API_KEY",
         anthropic: "ANTHROPIC_API_KEY",
@@ -1135,6 +1306,10 @@ function validateAgentConfiguration() {
     };
     const apiKeyEnvVar = providerApiKeyEnvVar[modelProvider] ?? "GOOGLE_API_KEY";
 
+    return { [apiKeyEnvVar]: getEnv(apiKeyEnvVar) };
+}
+
+function validateAgentConfiguration() {
     // CLIENT_SECRET is deliberately absent: a sub-organization app is typically public.
     const requiredValues: Record<string, string | undefined> = {
         ASGARDEO_BASE_URL: asgardeoConfig.baseUrl,
@@ -1142,7 +1317,7 @@ function validateAgentConfiguration() {
         REDIRECT_URI: asgardeoConfig.afterSignInUrl,
         AGENT_ID: agentConfig.agentID,
         AGENT_SECRET: agentConfig.agentSecret,
-        [apiKeyEnvVar]: getEnv(apiKeyEnvVar),
+        ...getModelProviderRequiredValues(),
     };
     const missingValues = Object.entries(requiredValues)
         .filter(([, value]) => !value)

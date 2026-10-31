@@ -31,6 +31,25 @@ cp .env.example .env
 
 Then update the values in `.env` for your local setup. The example file documents the required values.
 
+### Model Providers
+
+`MODEL_PROVIDER` selects the LLM: `gemini` (default), `openai`, `anthropic`, `deepseek`, or `openai-compatible`.
+The last one calls any OpenAI chat-completions endpoint, such as WSO2 API Manager's AI gateway in front of Azure
+OpenAI, with an OAuth2 client-credentials access token:
+
+```bash
+MODEL_PROVIDER=openai-compatible
+MODEL_NAME=gpt-5.2
+LLM_BASE_URL=https://gateway.example.com/llm/1.0.0      # the client appends /chat/completions
+LLM_TOKEN_URL=https://api.asgardeo.io/t/<org>/oauth2/token
+LLM_CLIENT_ID=<client id>
+LLM_CLIENT_SECRET=<client secret>
+```
+
+The token is cached until a minute before it expires; a 401 from the endpoint refreshes it and retries the call once.
+Requests drop `temperature`/`top_p` and send `max_completion_tokens`, as gpt-5.x models require. Set `LLM_API_KEY`
+instead of the token values for an endpoint that takes a static key.
+
 ## Run Locally
 
 Start your MCP server first, then run the AI agent service:
