@@ -35,6 +35,8 @@ Then open `.env.local` and fill in the values for your WSO2 Identity Server / As
 | `APP_DISPLAY_NAME` | The display name shown to users during onboarding |
 | `NEXT_PUBLIC_ENHANCED_ORGANIZATION_AUTHENTICATION` | Set to `true` if **Enhanced organization authentication** is enabled for the application (Application → Edit → **Shared Access** tab). Defaults to `false`. |
 | `NEXT_PUBLIC_ORGANIZATION_HANDLE_SUPPORTED` | Set to `true` if your IAM provider supports organization handles. When enabled, the onboarding wizard collects an organization handle and sends it as `orgHandle` when creating the organization. Defaults to `false`. |
+| `NEXT_PUBLIC_ONBOARDING_FLOW_URL` | Optional. A hosted organization onboarding flow: **Get started** opens it instead of the in-app form, and the flow returns to `/onboarding/complete`, which signs the new admin in to the workspace and shows the plan selection. `{returnUrl}` and `{clientId}` in the URL are filled in. |
+| `KYB_URL` | Optional. KYB endpoint the in-app sign-up calls before it creates the organization (`POST {companyName, registrationNumber}` → `{status: APPROVED\|REJECTED, referenceId, reasons}`); a rejected company is refused with the reasons. Credentials: `KYB_API_KEY` (+ `KYB_API_KEY_HEADER`, default `x-api-key`), `KYB_BEARER_TOKEN`, or `KYB_USERNAME`/`KYB_PASSWORD`; timeout `KYB_TIMEOUT_MS` (default 10000). |
 
 The `NEXT_PUBLIC_SCOPES` and `ROOT_SCOPES` values in `.env.example` are pre-configured with the scopes required by the app. Update them only if you change the feature set.
 

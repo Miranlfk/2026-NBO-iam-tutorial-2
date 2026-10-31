@@ -100,6 +100,34 @@ On the root organization's application (the one `NEXT_PUBLIC_CLIENT_ID` and the 
 The rest of the tenant setup (application grants, API resources, roles, agent, MCP server) is in the repository's
 main [README](../README.md).
 
+## Workspace sign-up, sign-in and child workspaces
+
+Variables in `env/enterprise-webapp.env` (all optional; see the example for the details):
+
+| Variable | Effect |
+|---|---|
+| `NEXT_PUBLIC_ONBOARDING_FLOW_URL` | "Get started" opens this hosted organization onboarding flow instead of the in-app form. `{returnUrl}` (= `https://enterprise.<APPS_DOMAIN>/onboarding/complete`) and `{clientId}` in it are filled in. The return route signs the new admin in to the workspace (`?organizationId=` or `?login_hint=` from the flow, else the organization sign-in page) and shows the plan selection. |
+| `KYB_URL`, `KYB_API_KEY_HEADER`, `KYB_API_KEY`, `KYB_BEARER_TOKEN`, `KYB_USERNAME`, `KYB_PASSWORD`, `KYB_TIMEOUT_MS` | In-app sign-up only: the server checks the company (`{companyName, registrationNumber}`) before it creates the organization and refuses a rejected one with the KYB reasons. `KYB_URL` must be reachable from the `enterprise-webapp` container: the public `https://integrator.<domain>/flows/kyb`, or `http://wayfinder-services:9091/flows/kyb` on a shared Docker network. |
+
+No new redirect URL is needed: sign-ins that must come back to a page (the onboarding return route) still use
+`https://enterprise.<APPS_DOMAIN>` as `redirect_uri`, and the app opens the page after the code exchange.
+
+Identity provider settings:
+
+- **Sign-in by email domain.** "Sign in" asks for the work email and sends `login_hint=<email>&orgDiscoveryType=emailDomain`
+  (with `fidp=OrganizationSSO` unless `NEXT_PUBLIC_ENHANCED_ORGANIZATION_AUTHENTICATION=true`). Enable email domain
+  based organization discovery in the root organization and map each workspace's email domains to it; a workspace
+  whose users sign in with an enterprise IdP needs that connection in the shared application's login flow (JIT
+  provisioning on). "Sign in to the Wayfinder workspace" in the same dialog signs in to the root organization without
+  discovery.
+- **Child workspaces** (Users and roles › Child workspaces) use the signed-in admin's token on the
+  organization-level Organization Management API: authorize it for the application with `internal_org_organization_view`
+  and `internal_org_organization_create`, add both to the `WayFinder-Admin` role and to `NEXT_PUBLIC_SCOPES`.
+- **Branding inheritance** (Personalization) reads the public branding endpoints
+  (`<base>/o/<org-id>/api/server/v1/branding-preference[/resolve]`, no token) and the parent organization with the
+  existing root `internal_organization_view` token. Asgardeo uses the nearest branding preference whole (no field
+  merge), so when a workspace saves branding, an empty logo or favicon is copied from its parent's effective branding.
+
 ## Data
 
 The database lives in the `wayfinder-enterprise_enterprise-data` volume. To back it up consistently, copy it with

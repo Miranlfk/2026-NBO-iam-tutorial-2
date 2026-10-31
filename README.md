@@ -161,6 +161,7 @@ Open the **API Authorization** tab of the application and authorize the followin
 | Application Management API | View Application, Update Application |
 | Branding Preference Management API | Update Branding Preference |
 | Userstore Management API | View Userstore |
+| Organization Management API | View Organization, Create Organization (child workspaces) |
 
 #### Management APIs
 
@@ -192,6 +193,7 @@ The primary workspace administrator role, shared with all organizations automati
 | SCIM2 Users API | List User, Create User, Update User |
 | SCIM2 Roles API | View Role, Create Role, Update Role, Delete Role, Update Users of Role, Update Permissions of Role, Update Groups of Role |
 | Identity Provider Management API | View Identity Provider |
+| Organization Management API (organization level) | View Organization, Create Organization |
 | Flight Booking Service | view_booking, create_booking, delete_booking |
 | Travel Policy Management Service | view_travel_policy, create_travel_policy, update_travel_policy, delete_travel_policy |
 | Upgrade Service | view_upgrade, create_upgrade, update_upgrade, delete_upgrade |
@@ -341,15 +343,19 @@ See [ai-agent/README.md](ai-agent/README.md) for full setup instructions. Fill i
 
 1. Visit `http://localhost:3000`.
 2. Click **Get Started** and then **Sign Up** on the landing page.
-3. Fill in your name, email, password, and organization name.
+3. Fill in your name, email, password, and organization name (and the company registration number when `KYB_URL` is set: the company must pass the KYB check first).
 4. After sign-up, the app creates a sub-organization in Asgardeo and adds the first user as a workspace admin.
+
+With `NEXT_PUBLIC_ONBOARDING_FLOW_URL` set, **Get Started** opens that hosted onboarding flow instead, and the flow's return to `/onboarding/complete` signs the new admin in to the workspace and continues with the plan selection. See [deploy/README.md](deploy/README.md#workspace-sign-up-sign-in-and-child-workspaces).
 
 ### Sign In to an Existing Organization
 
 1. Visit `http://localhost:3000`.
-2. Click **Sign In**.
-3. Enter your organization name and click **Submit**.
+2. Click **Sign In** and enter your work email.
+3. Asgardeo finds the workspace by the email's domain (organization discovery: enable email domain discovery in the root organization and map each organization's email domains) and shows its sign-in, or its enterprise IdP.
 4. Log in with your workspace credentials.
+
+Wayfinder staff use **Sign in to the Wayfinder workspace** in the same dialog (root organization, no discovery).
 
 Alternatively, navigate directly to `http://localhost:3000/?orgId=<org-id>` to pre-populate the organization selection.
 
