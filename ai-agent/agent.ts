@@ -87,16 +87,25 @@ function formatLogContext(context: LogContext) {
 }
 
 // Mirror logs to a per-port file, since OBO callbacks land long after the terminal scrolls.
-const logFilePath = getEnv("AGENT_LOG_FILE")
-    || resolve(__dirname, "logs", `agent-${getEnv("AGENT_PORT") || "8791"}.log`);
+// AGENT_LOG_FILE=off keeps logs on stdout only (containers, where the runtime collects them).
+const logFileSetting = getEnv("AGENT_LOG_FILE");
+const logFilePath = /^(off|none|false)$/i.test(logFileSetting)
+    ? ""
+    : logFileSetting || resolve(__dirname, "logs", `agent-${getEnv("AGENT_PORT") || "8791"}.log`);
 
 try {
-    mkdirSync(dirname(logFilePath), { recursive: true });
+    if (logFilePath) {
+        mkdirSync(dirname(logFilePath), { recursive: true });
+    }
 } catch {
     // A missing log file must never stop startup.
 }
 
 function appendLogFile(line: string) {
+    if (!logFilePath) {
+        return;
+    }
+
     try {
         appendFileSync(logFilePath, `${line}\n`);
     } catch {
