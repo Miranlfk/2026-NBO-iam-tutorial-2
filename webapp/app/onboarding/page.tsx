@@ -1,7 +1,14 @@
 import Link from "next/link";
+import { readPublicConfigFromEnv } from "../lib/config/public";
+import OnboardingFlowRedirect from "./OnboardingFlowRedirect";
 import OnboardingForm from "./OnboardingForm";
 
 export default function OnboardingPage() {
+  // Sign-up in Asgardeo's hosted onboarding flow (with its KYB flow extension); it returns to /onboarding/complete.
+  if (readPublicConfigFromEnv().onboardingFlowUrl) {
+    return <OnboardingFlowRedirect />;
+  }
+
   return (
     <main className="onboarding-page">
       <nav className="detail-nav">

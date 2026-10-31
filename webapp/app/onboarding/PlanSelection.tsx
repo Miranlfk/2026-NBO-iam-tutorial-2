@@ -6,7 +6,9 @@ export type Plan = "free" | "basic" | "advanced";
 
 interface PlanSelectionProps {
   onSelect: () => void;
-  onBack: () => void;
+  /** Omitted after the hosted onboarding flow: there is no form to go back to. */
+  onBack?: () => void;
+  stepLabel?: string;
 }
 
 const PLANS = [
@@ -70,14 +72,14 @@ function CheckIcon() {
   );
 }
 
-export default function PlanSelection({ onSelect, onBack }: PlanSelectionProps) {
+export default function PlanSelection({ onSelect, onBack, stepLabel = "Step 2 of 2" }: PlanSelectionProps) {
   const [selected, setSelected] = useState<Plan>("basic");
 
   return (
     <div className="plan-overlay">
       <div className="plan-page">
         <div className="plan-header">
-          <p className="eyebrow">Step 2 of 2</p>
+          <p className="eyebrow">{stepLabel}</p>
           <h2>Choose your plan.</h2>
           <p className="plan-subtitle">
             Pick the workspace plan that fits your team. You can upgrade at any time from your settings.
@@ -118,9 +120,11 @@ export default function PlanSelection({ onSelect, onBack }: PlanSelectionProps) 
         </div>
 
         <div className="plan-actions">
-          <button className="button button-secondary" onClick={onBack} type="button">
-            Back
-          </button>
+          {onBack && (
+            <button className="button button-secondary" onClick={onBack} type="button">
+              Back
+            </button>
+          )}
           <button className="button button-primary" onClick={onSelect} type="button">
             Continue with {PLANS.find((p) => p.id === selected)?.name}
           </button>

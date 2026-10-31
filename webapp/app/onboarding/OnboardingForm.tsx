@@ -7,6 +7,8 @@ import LoadingScreen, { LoadingStep } from "../LoadingScreen";
 import PlanSelection from "./PlanSelection";
 
 type OnboardingResponse = {
+  code?: string;
+  message?: string;
   organization: {
     id: string;
     name: string;
@@ -25,6 +27,7 @@ type FormState = {
   organizationName: string;
   organizationHandle: string;
   password: string;
+  registrationNumber: string;
 };
 
 type FormErrors = Partial<Record<keyof FormState, string>>;
@@ -37,7 +40,8 @@ const FIELD_LABELS: Record<keyof FormState, string> = {
   givenName: "First name",
   organizationName: "Organization name",
   organizationHandle: "Organization handle",
-  password: "Password"
+  password: "Password",
+  registrationNumber: "Company registration number"
 };
 
 const initialForm: FormState = {
@@ -46,14 +50,15 @@ const initialForm: FormState = {
   givenName: "",
   organizationName: "",
   organizationHandle: "",
-  password: ""
+  password: "",
+  registrationNumber: ""
 };
 
-function validate(form: FormState, orgHandleSupported: boolean): FormErrors {
+function validate(form: FormState, orgHandleSupported: boolean, kybEnabled: boolean): FormErrors {
   const errors: FormErrors = {};
 
   for (const key of Object.keys(form) as (keyof FormState)[]) {
-    if (key === "organizationHandle" && !orgHandleSupported) {
+    if ((key === "organizationHandle" && !orgHandleSupported) || (key === "registrationNumber" && !kybEnabled)) {
       continue;
     }
 
@@ -71,16 +76,22 @@ const INITIAL_STEPS: LoadingStep[] = [
   { label: "Switching to your workspace", status: "pending" },
 ];
 
+const KYB_STEP: LoadingStep = { label: "Verifying your company", status: "pending" };
+
+// Errors the server words for the user (KYB rejected, KYB unavailable); anything else gets the generic message.
+const USER_FACING_ERROR_CODES = new Set(["KYB_REJECTED", "KYB_UNAVAILABLE"]);
+
 type Phase = "form" | "plan" | "submitting";
 
 export default function OnboardingForm() {
   const { switchOrganization } = useAuth();
-  const orgHandleSupported = publicConfig().organizationHandleSupported;
+  const { organizationHandleSupported: orgHandleSupported, kybEnabled } = publicConfig();
+  const initialSteps = kybEnabled ? [KYB_STEP, ...INITIAL_STEPS] : INITIAL_STEPS;
   const [form, setForm] = useState<FormState>(initialForm);
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitError, setSubmitError] = useState("");
   const [phase, setPhase] = useState<Phase>("form");
-  const [steps, setSteps] = useState<LoadingStep[]>(INITIAL_STEPS);
+  const [steps, setSteps] = useState<LoadingStep[]>(initialSteps);
   const [showPassword, setShowPassword] = useState(false);
 
   function setStepStatus(index: number, status: LoadingStep["status"]) {
@@ -99,7 +110,7 @@ export default function OnboardingForm() {
   function handleSubmit(event: { preventDefault(): void }) {
     event.preventDefault();
 
-    const validationErrors = validate(form, orgHandleSupported);
+    const validationErrors = validate(form, orgHandleSupported, kybEnabled);
     setErrors(validationErrors);
 
     if (Object.keys(validationErrors).length > 0) {
@@ -111,37 +122,45 @@ export default function OnboardingForm() {
 
   async function handlePlanSelect() {
     setSubmitError("");
-    setSteps(INITIAL_STEPS);
+    setSteps(initialSteps);
     setPhase("submitting");
+
+    let errorMessage = ONBOARDING_ERROR_MESSAGE;
 
     try {
       setStepStatus(0, "active");
-      const { organizationHandle, ...rest } = form;
+      const { organizationHandle, registrationNumber, ...rest } = form;
       const response = await fetch("/api/onboarding", {
-        body: JSON.stringify(orgHandleSupported ? form : rest),
+        body: JSON.stringify({
+          ...rest,
+          ...(orgHandleSupported ? { organizationHandle } : {}),
+          ...(kybEnabled ? { registrationNumber } : {}),
+        }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
       });
-      const body = await response.json().catch(() => ({}));
+      const body = (await response.json().catch(() => ({}))) as Partial<OnboardingResponse>;
 
       if (!response.ok) {
-        throw new Error(ONBOARDING_ERROR_MESSAGE);
+        if (body.code && USER_FACING_ERROR_CODES.has(body.code) && body.message) {
+          errorMessage = body.message;
+          setStepStatus(0, "error");
+        }
+        throw new Error(errorMessage);
       }
 
-      setStepStatus(0, "done");
-      setStepStatus(1, "active");
+      for (let i = 0; i < initialSteps.length; i += 1) {
+        setStepStatus(i, "done");
+        if (i + 1 < initialSteps.length) setStepStatus(i + 1, "active");
+      }
 
       const result = body as OnboardingResponse;
-
-      setStepStatus(1, "done");
-      setStepStatus(2, "active");
-      setStepStatus(2, "done");
 
       await new Promise((resolve) => setTimeout(resolve, 1200));
       switchOrganization(result.organization);
     } catch {
-      setSubmitError(ONBOARDING_ERROR_MESSAGE);
-      await new Promise((resolve) => setTimeout(resolve, 2200));
+      setSubmitError(errorMessage);
+      await new Promise((resolve) => setTimeout(resolve, errorMessage === ONBOARDING_ERROR_MESSAGE ? 2200 : 4000));
       setPhase("form");
     }
   }
@@ -232,6 +251,17 @@ export default function OnboardingForm() {
           value={form.organizationName}
         />
       </label>
+      {kybEnabled ? (
+        <label>
+          <span>Company registration number<span className="required-mark">*</span></span>
+          <input
+            className={errors.registrationNumber ? "input--error" : ""}
+            onChange={(event) => updateField("registrationNumber", event.target.value)}
+            placeholder="e.g. GB20261038"
+            value={form.registrationNumber}
+          />
+        </label>
+      ) : null}
       {orgHandleSupported ? (
         <label>
           <span>Organization handle<span className="required-mark">*</span></span>

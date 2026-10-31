@@ -11,6 +11,7 @@ type OnboardingRequest = {
   organizationName?: string;
   organizationHandle?: string;
   password?: string;
+  registrationNumber?: string;
 };
 
 type TokenResponse = {
@@ -26,7 +27,14 @@ type Organization = {
   status: string;
 };
 
+type KybResult = {
+  status?: string;
+  referenceId?: string;
+  reasons?: unknown;
+};
+
 const ONBOARDING_ERROR_MESSAGE = "We couldn't create your organization right now. Please try again in a moment.";
+const KYB_UNAVAILABLE_MESSAGE = "We couldn't verify your company right now. Please try again in a moment.";
 
 const clientSecret = process.env.CLIENT_SECRET ?? process.env.NEXT_PUBLIC_CLIENT_SECRET;
 const parentOrganizationId = process.env.PARENT_ORGANIZATION_ID;
@@ -41,6 +49,11 @@ const userStoreId = Buffer.from(userStoreName).toString("base64").replace(/=+$/,
 const pollInterval = Number(process.env.POLL_INTERVAL_MS ?? 1500);
 const orgReadyTimeout = Number(process.env.USERSTORE_TIMEOUT_MS ?? 30000);
 const userCreationRetryTimeout = Number(process.env.USER_CREATION_RETRY_TIMEOUT_MS ?? 30000);
+// KYB (know your business) check before the organization is created: the plain JSON contract of the BI
+// /flows/kyb endpoint, {companyName, registrationNumber} -> {status: APPROVED|REJECTED, referenceId, reasons}.
+// Unset KYB_URL skips the check.
+const kybUrl = process.env.KYB_URL?.trim();
+const kybTimeout = Number(process.env.KYB_TIMEOUT_MS ?? 10000);
 
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -89,6 +102,49 @@ async function getToken(params: Record<string, string>) {
   }
 
   return body.access_token;
+}
+
+// Caller credentials for KYB_URL: an API key header, a bearer token or Basic, whichever is set (first wins).
+function kybHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { Accept: "application/json", "Content-Type": "application/json" };
+
+  if (process.env.KYB_API_KEY) {
+    headers[process.env.KYB_API_KEY_HEADER || "x-api-key"] = process.env.KYB_API_KEY;
+  } else if (process.env.KYB_BEARER_TOKEN) {
+    headers.Authorization = `Bearer ${process.env.KYB_BEARER_TOKEN}`;
+  } else if (process.env.KYB_USERNAME) {
+    const credentials = `${process.env.KYB_USERNAME}:${process.env.KYB_PASSWORD ?? ""}`;
+    headers.Authorization = `Basic ${Buffer.from(credentials).toString("base64")}`;
+  }
+
+  return headers;
+}
+
+/** The KYB decision, or null when the KYB service could not be reached or gave no decision. */
+async function checkBusiness(url: string, companyName: string, registrationNumber: string) {
+  try {
+    const response = await fetch(url, {
+      body: JSON.stringify({ companyName, registrationNumber }),
+      headers: kybHeaders(),
+      method: "POST",
+      signal: AbortSignal.timeout(Number.isFinite(kybTimeout) ? kybTimeout : 10000)
+    });
+    const body = (await response.json().catch(() => ({}))) as KybResult;
+
+    if (!response.ok || (body.status !== "APPROVED" && body.status !== "REJECTED")) {
+      routeLogger.error({ statusCode: response.status, kybStatus: body.status }, "KYB check gave no decision");
+      return null;
+    }
+
+    return {
+      approved: body.status === "APPROVED",
+      reasons: Array.isArray(body.reasons) ? body.reasons.filter((r): r is string => typeof r === "string") : [],
+      referenceId: typeof body.referenceId === "string" ? body.referenceId : ""
+    };
+  } catch (error) {
+    routeLogger.error({ err: error }, "KYB check failed");
+    return null;
+  }
 }
 
 async function createOrganization(accessToken: string, name: string, orgHandle?: string): Promise<Organization> {
@@ -348,6 +404,7 @@ export async function POST(request: Request) {
     const organizationName = asText(payload.organizationName);
     const organizationHandle = asText(payload.organizationHandle);
     const password = asText(payload.password) || undefined;
+    const registrationNumber = asText(payload.registrationNumber);
 
     if (!email || !givenName || !familyName || !organizationName) {
       return NextResponse.json({ message: "All onboarding fields are required." }, { status: 400 });
@@ -355,6 +412,34 @@ export async function POST(request: Request) {
 
     if (orgHandleSupported && !organizationHandle) {
       return NextResponse.json({ message: "All onboarding fields are required." }, { status: 400 });
+    }
+
+    let kybReference: string | undefined;
+
+    if (kybUrl) {
+      const kyb = await checkBusiness(kybUrl, organizationName, registrationNumber);
+
+      if (!kyb) {
+        return NextResponse.json({ code: "KYB_UNAVAILABLE", message: KYB_UNAVAILABLE_MESSAGE }, { status: 503 });
+      }
+
+      if (!kyb.approved) {
+        routeLogger.warn({ organizationName, referenceId: kyb.referenceId }, "KYB check rejected the company");
+        const reasons = kyb.reasons.length > 0 ? ` ${kyb.reasons.join(" ")}` : "";
+        const reference = kyb.referenceId ? ` Reference: ${kyb.referenceId}.` : "";
+
+        return NextResponse.json(
+          {
+            code: "KYB_REJECTED",
+            message: `We couldn't verify ${organizationName}.${reasons}${reference}`,
+            referenceId: kyb.referenceId
+          },
+          { status: 422 }
+        );
+      }
+
+      kybReference = kyb.referenceId;
+      routeLogger.info({ organizationName, referenceId: kybReference }, "KYB check approved the company");
     }
 
     const rootAccessToken = await getToken({
@@ -398,6 +483,7 @@ export async function POST(request: Request) {
     ]);
 
     return NextResponse.json({
+      kybReference,
       organization,
       user: {
         emails: user.emails,

@@ -23,6 +23,13 @@ export interface PublicConfig {
   afterSignOutUrl: string;
   enhancedOrganizationAuthentication: boolean;
   organizationHandleSupported: boolean;
+  /**
+   * Hosted organization onboarding flow that "Get started" opens instead of the in-app sign-up form; empty keeps
+   * the form. {returnUrl} and {clientId} in the URL are replaced (see app/onboarding/OnboardingFlowRedirect.tsx).
+   */
+  onboardingFlowUrl: string;
+  /** True when the in-app sign-up checks the company against KYB_URL first (the URL itself stays server-side). */
+  kybEnabled: boolean;
   upgradeWaitMs: number;
   agentChatUrl: string;
   agentHttpBaseUrl: string;
@@ -78,6 +85,8 @@ export function readPublicConfigFromEnv(): PublicConfig {
     afterSignOutUrl: env("NEXT_PUBLIC_AFTER_SIGN_OUT_URL") ?? "",
     enhancedOrganizationAuthentication: envFlag("NEXT_PUBLIC_ENHANCED_ORGANIZATION_AUTHENTICATION"),
     organizationHandleSupported: envFlag("NEXT_PUBLIC_ORGANIZATION_HANDLE_SUPPORTED"),
+    onboardingFlowUrl: env("NEXT_PUBLIC_ONBOARDING_FLOW_URL") ?? "",
+    kybEnabled: !!env("KYB_URL"),
     upgradeWaitMs: Number.isFinite(upgradeWaitMs) ? upgradeWaitMs : 5000,
     agentChatUrl,
     agentHttpBaseUrl: env("NEXT_PUBLIC_AGENT_HTTP_BASE_URL") ?? toHttpBaseUrl(agentChatUrl),
