@@ -9,9 +9,43 @@ interface SignInOptions {
   fidp?: string;
   org?: string;
   orgId?: string;
+  /** Organization discovery: the user's email, sent as login_hint. */
+  loginHint?: string;
+  /** Organization discovery type, e.g. "emailDomain" (routes the user by the email's domain). */
+  orgDiscoveryType?: string;
+  /** Same-origin path to open once the sign-in completes (the redirect_uri itself is always the site root). */
+  returnTo?: string;
 }
 
 const isEnhancedOrgAuthEnabled = () => publicConfig().enhancedOrganizationAuthentication;
+
+const RETURN_TO_KEY = "wayfinder.return_to";
+const RETURN_TO_TTL_MS = 30 * 60 * 1000;
+
+const isLocalPath = (path: unknown): path is string =>
+  typeof path === "string" && path.startsWith("/") && !/^\/[\\/]/.test(path);
+
+// Remembers (or, without a path, forgets) where to go after the next code exchange. It expires, so an
+// abandoned sign-in does not hijack a later one.
+function rememberReturnTo(path?: string) {
+  if (isLocalPath(path)) {
+    localStorage.setItem(RETURN_TO_KEY, JSON.stringify({ path, expiresAt: Date.now() + RETURN_TO_TTL_MS }));
+  } else {
+    localStorage.removeItem(RETURN_TO_KEY);
+  }
+}
+
+function takeReturnTo(): string | null {
+  const stored = localStorage.getItem(RETURN_TO_KEY);
+  localStorage.removeItem(RETURN_TO_KEY);
+
+  try {
+    const { path, expiresAt } = JSON.parse(stored ?? "null") ?? {};
+    return isLocalPath(path) && typeof expiresAt === "number" && expiresAt > Date.now() ? path : null;
+  } catch {
+    return null;
+  }
+}
 
 interface AuthState {
   isLoading: boolean;
@@ -23,7 +57,7 @@ interface AuthState {
   impersonatedUserName: string | null;
   signIn: (options?: SignInOptions) => void;
   signOut: () => void;
-  switchOrganization: (org: { name?: string; orgId?: string }) => void;
+  switchOrganization: (org: { name?: string; orgId?: string }, options?: { returnTo?: string }) => void;
   startImpersonation: (userId: string, userName: string) => void;
   stopImpersonation: () => void;
 }
@@ -91,6 +125,14 @@ function buildAuthorizeUrl(options?: SignInOptions): string {
 
   if (options?.orgId) {
     params.set("orgId", options.orgId);
+  }
+
+  if (options?.loginHint) {
+    params.set("login_hint", options.loginHint);
+  }
+
+  if (options?.orgDiscoveryType) {
+    params.set("orgDiscoveryType", options.orgDiscoveryType);
   }
 
   return `${baseUrl}/oauth2/authorize?${params.toString()}`;
@@ -238,6 +280,11 @@ export function AuthProvider({ children, initialIsExchanging = false }: { childr
       .then((data: { access_token?: string; id_token?: string; error?: string }) => {
         if (data.access_token) {
           storeToken(data.access_token, data.id_token);
+          const returnTo = takeReturnTo();
+          if (returnTo) {
+            window.location.replace(returnTo);
+            return;
+          }
           setIsExchanging(false);
         } else {
           setExchangeError(data.error ?? "Authentication failed. Please try again.");
@@ -337,6 +384,7 @@ export function AuthProvider({ children, initialIsExchanging = false }: { childr
 
   const signIn = useCallback((options?: SignInOptions) => {
     setIsSigningIn(true);
+    rememberReturnTo(options?.returnTo);
     window.location.href = buildAuthorizeUrl(options);
   }, []);
 
@@ -381,7 +429,8 @@ export function AuthProvider({ children, initialIsExchanging = false }: { childr
     }
   }, [idToken]);
 
-  const switchOrganization = useCallback((org: { name?: string; orgId?: string }) => {
+  const switchOrganization = useCallback((org: { name?: string; orgId?: string }, options?: { returnTo?: string }) => {
+    rememberReturnTo(options?.returnTo);
     localStorage.removeItem("access_token");
     localStorage.removeItem("id_token");
     localStorage.removeItem("impersonation_token");

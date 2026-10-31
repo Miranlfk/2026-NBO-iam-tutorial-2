@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import SignInButton from "./SignInButton";
 import { useAuth } from "./lib/auth/client";
 import { useBranding } from "./lib/branding/BrandingProvider";
 
@@ -29,7 +30,7 @@ function useLandingUser() {
 }
 
 export function LandingHeader() {
-  const { displayName, email, initials, isSignedIn, signIn, signOut } = useLandingUser();
+  const { displayName, email, initials, isSignedIn, signOut } = useLandingUser();
   const { branding } = useBranding();
   const logoSrc = branding?.logoUrl || "/wayfinder-logo.png";
   const appName = branding?.displayName || "Wayfinder";
@@ -69,9 +70,7 @@ export function LandingHeader() {
             <Link className="button button-secondary" href="/onboarding">
               Get started
             </Link>
-            <button className="button button-primary" onClick={() => signIn({ fidp: "OrganizationSSO" })} type="button">
-              Sign in
-            </button>
+            <SignInButton className="button button-primary" />
           </>
         )}
       </div>

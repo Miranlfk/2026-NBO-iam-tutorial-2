@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import SignInButton from "./SignInButton";
 import { useAuth } from "./lib/auth/client";
 
 export default function HeroCtaSection() {
-  const { isSignedIn, signIn } = useAuth();
+  const { isSignedIn } = useAuth();
 
   return (
     <div className="hero-actions">
@@ -17,9 +18,7 @@ export default function HeroCtaSection() {
           <Link className="button button-primary" href="/onboarding">
             Create workspace
           </Link>
-          <button className="button button-secondary" onClick={() => signIn()} type="button">
-            Sign in
-          </button>
+          <SignInButton className="button button-secondary" />
         </>
       )}
     </div>

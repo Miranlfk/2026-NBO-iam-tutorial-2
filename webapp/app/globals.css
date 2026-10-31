@@ -3127,6 +3127,19 @@ select.form-field-input {
   padding: 20px 22px 22px;
 }
 
+/* Modals outside the app shell (landing page): the app-shell tokens the modal classes use. */
+.public-modal {
+  --app-border: #dbe3ee;
+  --app-card: #ffffff;
+  --app-ink: #0f172a;
+  --app-muted: #64748b;
+  color: var(--app-ink);
+}
+
+.public-modal .text-button {
+  color: var(--primary);
+}
+
 .modal-user-info {
   align-items: center;
   background: #f8fafc;
