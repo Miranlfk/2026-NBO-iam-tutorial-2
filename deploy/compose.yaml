@@ -1,0 +1,94 @@
+# Wayfinder Enterprise (B2B): webapp, MCP server and AI agent on one Docker host, behind a TLS proxy (Caddy).
+#
+#   cp .env.example .env                       # APPS_DOMAIN, ASGARDEO_BASE_URL, LLM_BASE_URL, ports
+#   for s in webapp mcp agent; do cp env/enterprise-$s.env.example env/enterprise-$s.env; done   # then fill in
+#   docker compose build                       # or: docker compose build enterprise-webapp (one at a time)
+#   docker compose up -d
+#
+# URLs are derived here from .env, so a domain switch is: edit .env, `docker compose up -d`. They take precedence
+# over the env files, which hold credentials, IDs and feature settings. The images contain nothing
+# environment-specific. See README.md for the hostnames and what the proxy must route.
+name: wayfinder-enterprise
+
+x-service: &service
+  restart: unless-stopped
+  init: true                      # forwards SIGTERM to node and reaps children
+  networks: [enterprise]
+
+services:
+  enterprise-webapp:              # https://enterprise.${APPS_DOMAIN}
+    <<: *service
+    build:
+      context: ../webapp
+    image: ${ENTERPRISE_IMAGE_REPO:-wayfinder-enterprise}-webapp:${ENTERPRISE_IMAGE_TAG:-latest}
+    env_file: [env/enterprise-webapp.env]
+    environment:
+      NEXT_PUBLIC_BASE_URL: ${ASGARDEO_BASE_URL:?set ASGARDEO_BASE_URL in .env}
+      NEXT_PUBLIC_AFTER_SIGN_IN_URL: https://enterprise.${APPS_DOMAIN:?set APPS_DOMAIN in .env}
+      NEXT_PUBLIC_AFTER_SIGN_OUT_URL: https://enterprise.${APPS_DOMAIN}
+      NEXT_PUBLIC_AGENT_CHAT_URL: wss://enterprise-agent.${APPS_DOMAIN}/chat
+      DB_PATH: /data/app.db
+    volumes:
+      - enterprise-data:/data     # SQLite (WAL), shared with enterprise-mcp
+    ports:
+      - "127.0.0.1:${ENTERPRISE_WEBAPP_PORT:-3100}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  enterprise-mcp:                 # internal only: the agent calls http://enterprise-mcp:8001/mcp
+    <<: *service
+    build:
+      context: ..                 # the MCP server imports webapp/app/lib, so the context is the repository root
+      dockerfile: mcp/Dockerfile
+    image: ${ENTERPRISE_IMAGE_REPO:-wayfinder-enterprise}-mcp:${ENTERPRISE_IMAGE_TAG:-latest}
+    env_file: [env/enterprise-mcp.env]
+    environment:
+      ASGARDEO_BASE_URL: ${ASGARDEO_BASE_URL:?set ASGARDEO_BASE_URL in .env}
+      DB_PATH: /data/app.db
+    volumes:
+      - enterprise-data:/data
+    expose: ["8001"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8001/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  enterprise-agent:               # https://enterprise-agent.${APPS_DOMAIN} (wss:// /chat, /obo/*)
+    <<: *service
+    build:
+      context: ../ai-agent
+    image: ${ENTERPRISE_IMAGE_REPO:-wayfinder-enterprise}-agent:${ENTERPRISE_IMAGE_TAG:-latest}
+    env_file: [env/enterprise-agent.env]
+    environment:
+      ASGARDEO_BASE_URL: ${ASGARDEO_BASE_URL:?set ASGARDEO_BASE_URL in .env}
+      REDIRECT_URI: https://enterprise-agent.${APPS_DOMAIN:?set APPS_DOMAIN in .env}
+      OBO_REDIRECT_URI: https://enterprise-agent.${APPS_DOMAIN}/obo/callback
+      APP_BASE_URL: https://enterprise.${APPS_DOMAIN}
+      MCP_SERVER_URL: http://enterprise-mcp:8001/mcp
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_TOKEN_URL: ${LLM_TOKEN_URL:-${ASGARDEO_BASE_URL}/oauth2/token}
+    ports:
+      - "127.0.0.1:${ENTERPRISE_AGENT_PORT:-8791}:8791"
+    depends_on:
+      enterprise-mcp:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8791/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  enterprise-data: {}
+
+networks:
+  enterprise:
+    # Fixed name so a Caddy container from another Compose project can join it (external: true).
+    name: ${ENTERPRISE_NETWORK:-wayfinder-enterprise}

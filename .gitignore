@@ -29,3 +29,6 @@ scripts/
 # Agent runtime logs
 logs/
 *.log
+
+# Deployment env files hold live credentials; only the examples are committed
+deploy/env/*.env

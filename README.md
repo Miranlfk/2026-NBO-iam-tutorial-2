@@ -47,9 +47,13 @@ Root Organization (Wayfinder Enterprise)
 │   └── README.md              # Webapp-specific setup instructions
 ├── mcp/                       # MCP server (port 8001)
 │   └── README.md              # MCP server setup instructions
-└── ai-agent/                  # AI agent service (port 8791)
-    └── README.md              # AI agent setup instructions
+├── ai-agent/                  # AI agent service (port 8791)
+│   └── README.md              # AI agent setup instructions
+└── deploy/                    # Docker Compose deployment of all three
+    └── README.md              # Hostnames, proxy routes, configuration
 ```
+
+Each component has a `Dockerfile`; [deploy/README.md](deploy/README.md) runs them with Docker Compose behind a TLS proxy.
 
 ## Asgardeo Configuration Steps
 
