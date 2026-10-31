@@ -32,11 +32,16 @@ export function getDb(): Database.Database {
 
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
-  _db = new Database(DB_PATH);
-  _db.pragma("journal_mode = WAL");
-  _db.pragma("foreign_keys = ON");
-  _db.exec(fs.readFileSync(SCHEMA_PATH, "utf-8"));
-  runMigrations(_db);
+  const db = new Database(DB_PATH);
+  // The webapp and the MCP server open the same file (one volume, two containers),
+  // so wait for the other's lock instead of failing with SQLITE_BUSY.
+  db.pragma("busy_timeout = 5000");
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+  db.exec(fs.readFileSync(SCHEMA_PATH, "utf-8"));
+  runMigrations(db);
 
+  // Cache only a fully initialised connection, so a failed start is retried.
+  _db = db;
   return _db;
 }
