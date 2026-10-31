@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import WorkspaceShell from "../WorkspaceShell";
 import { useAuth } from "../lib/auth/client";
 import { UserRole } from "../lib/auth/utils";
+import { publicConfig } from "../lib/config/public";
 
-type Tab = "users" | "roles";
+type Tab = "users" | "roles" | "workspaces";
 type UserStatus = "Active" | "Locked";
 type RoleName = "Admin" | "Member" | "Idp Manager" | "Basic Branding Editor" | "Advanced Branding Editor";
 type Permission = "Flight Booking" | "Travel Policy" | "Impersonate" | "IDP Configure" | "Basic Branding" | "Advanced Branding" | "User Mgt";
@@ -29,6 +30,32 @@ interface RoleData {
   id: string;
   name: RoleName;
   userIds: string[];
+}
+
+/** GET /api/organization/children: a sub-organization of this workspace and where its sign-in branding comes from. */
+interface ChildWorkspace {
+  id: string;
+  name: string;
+  status: string;
+  branding: { source: "own" | "inherited" | "default"; overrides: string[] } | null;
+}
+
+const BRANDING_FIELD_LABELS: Record<string, string> = {
+  logoUrl: "logo",
+  faviconUrl: "favicon",
+  primaryColor: "primary color",
+  secondaryColor: "secondary color",
+  textPrimaryColor: "text color",
+  fontFamily: "font",
+  supportEmail: "support email",
+};
+
+function describeChildBranding(branding: ChildWorkspace["branding"], workspaceName: string): string {
+  if (!branding) return "Branding status unavailable";
+  if (branding.source === "inherited") return `Inherits ${workspaceName}'s branding`;
+  if (branding.source === "default") return "Default theme (no branding above it)";
+  if (branding.overrides.length === 0) return `Own branding, same as ${workspaceName}`;
+  return `Own branding · overrides ${branding.overrides.map((f) => BRANDING_FIELD_LABELS[f] ?? f).join(", ")}`;
 }
 
 const ALL_PERMISSIONS: Permission[] = [
@@ -55,10 +82,13 @@ const PAGE_SIZE = 5;
 const TABS: { id: Tab; label: string }[] = [
   { id: "users", label: "Users" },
   { id: "roles", label: "Roles & Permissions" },
+  { id: "workspaces", label: "Child workspaces" },
 ];
 
 export default function OrganizationDashboard({ roles }: { roles: UserRole[] }) {
-  const { accessToken, startImpersonation } = useAuth();
+  const { accessToken, startImpersonation, user } = useAuth();
+  const workspaceName = user?.orgName || "this workspace";
+  const orgHandleSupported = publicConfig().organizationHandleSupported;
   const [activeTab, setActiveTab] = useState<Tab>("users");
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [usersLoading, setUsersLoading] = useState(true);
@@ -85,6 +115,16 @@ export default function OrganizationDashboard({ roles }: { roles: UserRole[] }) 
   const [inviteSent, setInviteSent] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+
+  const [children, setChildren] = useState<ChildWorkspace[]>([]);
+  const [childrenLoading, setChildrenLoading] = useState(true);
+  const [childrenError, setChildrenError] = useState<string | null>(null);
+
+  const [showCreateChild, setShowCreateChild] = useState(false);
+  const [childName, setChildName] = useState("");
+  const [childHandle, setChildHandle] = useState("");
+  const [createChildLoading, setCreateChildLoading] = useState(false);
+  const [createChildError, setCreateChildError] = useState<string | null>(null);
 
   const fetchRoles = (token: string, signal?: AbortSignal) => {
     setRolesLoading(true);
@@ -129,11 +169,40 @@ export default function OrganizationDashboard({ roles }: { roles: UserRole[] }) 
       });
   };
 
+  const fetchChildren = (token: string, signal?: AbortSignal) => {
+    setChildrenLoading(true);
+    setChildrenError(null);
+    fetch("/api/organization/children", {
+      headers: { Authorization: `Bearer ${token}` },
+      signal,
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({})) as { organizations?: ChildWorkspace[]; error?: string };
+        if (signal?.aborted) return;
+        if (Array.isArray(data.organizations)) {
+          setChildren(data.organizations);
+        } else {
+          setChildrenError(
+            res.status === 403
+              ? "Your role does not allow viewing child workspaces (internal_org_organization_view)."
+              : data.error ?? "Failed to load child workspaces."
+          );
+        }
+      })
+      .catch(() => {
+        if (!signal?.aborted) setChildrenError("Failed to load child workspaces.");
+      })
+      .finally(() => {
+        if (!signal?.aborted) setChildrenLoading(false);
+      });
+  };
+
   useEffect(() => {
     if (!accessToken) return;
     const controller = new AbortController();
     fetchUsers(accessToken, controller.signal);
     fetchRoles(accessToken, controller.signal);
+    fetchChildren(accessToken, controller.signal);
     return () => controller.abort();
   }, [accessToken]);
 
@@ -290,6 +359,46 @@ export default function OrganizationDashboard({ roles }: { roles: UserRole[] }) 
       setInviteError("Failed to invite user. Please try again.");
     } finally {
       setInviteLoading(false);
+    }
+  }
+
+  function openCreateChild() {
+    setChildName("");
+    setChildHandle("");
+    setCreateChildError(null);
+    setShowCreateChild(true);
+  }
+
+  async function handleCreateChild() {
+    const name = childName.trim();
+    if (!name || !accessToken) return;
+
+    setCreateChildLoading(true);
+    setCreateChildError(null);
+
+    try {
+      const res = await fetch("/api/organization/children", {
+        body: JSON.stringify({ name, ...(orgHandleSupported ? { orgHandle: childHandle.trim() } : {}) }),
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        method: "POST",
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        setCreateChildError(
+          res.status === 403
+            ? "Your role does not allow creating child workspaces (internal_org_organization_create)."
+            : data.error ?? "Failed to create the workspace."
+        );
+        return;
+      }
+
+      setShowCreateChild(false);
+      fetchChildren(accessToken);
+    } catch {
+      setCreateChildError("Failed to create the workspace.");
+    } finally {
+      setCreateChildLoading(false);
     }
   }
 
@@ -537,6 +646,127 @@ export default function OrganizationDashboard({ roles }: { roles: UserRole[] }) 
               })}
             </div>
           </section>
+        </div>
+      )}
+
+      {/* ── Child workspaces ────────────────────────────────────── */}
+      {activeTab === "workspaces" && (
+        <div className="tab-content">
+          <section className="workspace-panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Under {workspaceName}</p>
+                <h2>Child workspaces</h2>
+              </div>
+              <button className="button button-primary" type="button" onClick={openCreateChild}>
+                New child workspace
+              </button>
+            </div>
+            <p style={{ color: "var(--app-muted)", fontSize: "0.9rem", margin: "6px 0 14px" }}>
+              Child workspaces are organizations under this one. A child without branding of its own uses this
+              workspace&apos;s sign-in branding; one with its own branding uses only its own.
+            </p>
+
+            {childrenLoading ? (
+              <div className="policy-list" aria-busy="true">
+                {[1, 2].map((i) => (
+                  <div className="skeleton-block" key={i} style={{ borderRadius: "8px", height: "58px" }} />
+                ))}
+              </div>
+            ) : childrenError ? (
+              <div className="users-error-state" role="alert">
+                <h4>Failed to load child workspaces</h4>
+                <p>{childrenError}</p>
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  style={{ marginTop: "4px", fontSize: "0.84rem", minHeight: "34px", padding: "0 16px" }}
+                  onClick={() => accessToken && fetchChildren(accessToken)}
+                >
+                  Try again
+                </button>
+              </div>
+            ) : children.length === 0 ? (
+              <p className="empty-state">No child workspaces yet.</p>
+            ) : (
+              <div className="policy-list">
+                {children.map((child) => (
+                  <article className="policy-row" key={child.id}>
+                    <div>
+                      <strong>{child.name}</strong>
+                      <span>{describeChildBranding(child.branding, workspaceName)}</span>
+                    </div>
+                    {child.status === "ACTIVE" ? (
+                      <em>Active</em>
+                    ) : (
+                      <em style={{ background: "#fef2f2", color: "#b91c1c" }}>{child.status || "Unknown"}</em>
+                    )}
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* ── New Child Workspace Modal ────────────────────────────── */}
+      {showCreateChild && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="New child workspace" onClick={() => setShowCreateChild(false)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Under {workspaceName}</p>
+                <h3 style={{ margin: "2px 0 0" }}>New child workspace</h3>
+              </div>
+              <button className="modal-close" type="button" aria-label="Close" onClick={() => setShowCreateChild(false)}>
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                  <path d="M4 4l10 10M14 4L4 14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            <div className="modal-body">
+              <label className="form-field-label">
+                Workspace name
+                <input
+                  autoFocus
+                  className="form-field-input"
+                  placeholder="e.g. Northstar East"
+                  value={childName}
+                  onChange={(e) => setChildName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !createChildLoading) handleCreateChild(); }}
+                />
+              </label>
+              {orgHandleSupported && (
+                <label className="form-field-label">
+                  Workspace handle
+                  <input
+                    className="form-field-input"
+                    placeholder="e.g. northstar-east"
+                    value={childHandle}
+                    onChange={(e) => setChildHandle(e.target.value)}
+                  />
+                </label>
+              )}
+              {createChildError && (
+                <div className="form-error" role="alert" style={{ fontSize: "0.86rem" }}>
+                  {createChildError}
+                </div>
+              )}
+              <div className="action-cluster" style={{ justifyContent: "flex-end" }}>
+                <button className="button button-secondary" type="button" disabled={createChildLoading} onClick={() => setShowCreateChild(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="button button-primary"
+                  type="button"
+                  disabled={!childName.trim() || (orgHandleSupported && !childHandle.trim()) || createChildLoading}
+                  onClick={handleCreateChild}
+                >
+                  {createChildLoading ? "Creating…" : "Create workspace"}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

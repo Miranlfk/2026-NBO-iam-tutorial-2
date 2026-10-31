@@ -8,56 +8,35 @@ import {
   brandingDelete,
   type BrandingConfig,
 } from "../../../lib/asgardeo/client";
-import { publicConfig } from "../../../lib/config/public";
+import { getOrgM2MToken } from "../../../lib/asgardeo/m2m";
+import { getParentBranding } from "../../../lib/asgardeo/branding-inheritance";
 import { logger } from "../../../lib/logging/logger";
 import { logRequestActor } from "../../../lib/auth/log";
 
 const routeLogger = logger.child({ route: "organization/branding" });
 
-const clientSecret = process.env.CLIENT_SECRET ?? "";
-
 const HEX_RE = /^#[0-9A-Fa-f]{6}$/;
 
-async function getOrgM2MToken(orgId: string): Promise<string> {
-  const { baseUrl } = publicConfig();
-  const clientId = process.env.CLIENT_ID || publicConfig().clientId;
-  const rootRes = await fetch(`${baseUrl}/oauth2/token`, {
-    method: "POST",
-    body: new URLSearchParams({
-      grant_type: "client_credentials",
-      scope: "internal_organization_view",
-    }),
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-  });
+const getBrandingToken = (orgId: string) => getOrgM2MToken(orgId, "internal_org_branding_preference_update");
 
-  const rootJson = await rootRes.json().catch(() => ({})) as { access_token?: string; error_description?: string };
-  if (!rootRes.ok || !rootJson.access_token) {
-    throw new Error(rootJson.error_description ?? "Failed to get root management token.");
+// Asgardeo uses the nearest branding preference whole: once a workspace saves its own, nothing comes from its
+// parent any more. So the logo and favicon a workspace leaves empty are copied from the parent's effective
+// branding when it saves (a copy at save time, not a live link): the sign-in page keeps the parent's logo while
+// the workspace overrides, for example, the colors.
+async function withParentImages(orgId: string, config: BrandingConfig): Promise<BrandingConfig> {
+  if (config.logoUrl && config.faviconUrl) return config;
+
+  try {
+    const { branding } = await getParentBranding(orgId);
+    return {
+      ...config,
+      logoUrl: config.logoUrl || branding?.logoUrl || "",
+      faviconUrl: config.faviconUrl || branding?.faviconUrl || "",
+    };
+  } catch (err) {
+    routeLogger.warn({ err, orgId }, "Parent branding lookup failed; saving without inherited images");
+    return config;
   }
-
-  const orgRes = await fetch(`${baseUrl}/oauth2/token`, {
-    method: "POST",
-    body: new URLSearchParams({
-      grant_type: "organization_switch",
-      token: rootJson.access_token,
-      switching_organization: orgId,
-      scope: "internal_org_branding_preference_update",
-    }),
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-  });
-
-  const orgJson = await orgRes.json().catch(() => ({})) as { access_token?: string; error_description?: string };
-  if (!orgRes.ok || !orgJson.access_token) {
-    throw new Error(orgJson.error_description ?? "Failed to get org management token.");
-  }
-
-  return orgJson.access_token;
 }
 
 function recordToConfig(record: NonNullable<ReturnType<typeof getBranding>>): BrandingConfig {
@@ -133,13 +112,14 @@ export async function POST(request: NextRequest) {
   const body = await parseBody(request);
   if (body instanceof NextResponse) return body;
 
-  const config = buildConfig(body);
-  if (config instanceof NextResponse) return config;
+  const built = buildConfig(body);
+  if (built instanceof NextResponse) return built;
 
   const { orgId } = auth.claims;
 
   try {
-    const m2mToken = await getOrgM2MToken(orgId);
+    const config = await withParentImages(orgId, built);
+    const m2mToken = await getBrandingToken(orgId);
     await brandingCreate(m2mToken, orgId, config);
     const record = upsertBranding(orgId, config);
     return NextResponse.json({ branding: recordToConfig(record) }, { status: 201 });
@@ -158,13 +138,14 @@ export async function PUT(request: NextRequest) {
   const body = await parseBody(request);
   if (body instanceof NextResponse) return body;
 
-  const config = buildConfig(body);
-  if (config instanceof NextResponse) return config;
+  const built = buildConfig(body);
+  if (built instanceof NextResponse) return built;
 
   const { orgId } = auth.claims;
 
   try {
-    const m2mToken = await getOrgM2MToken(orgId);
+    const config = await withParentImages(orgId, built);
+    const m2mToken = await getBrandingToken(orgId);
     const existing = getBranding(orgId);
     if (existing) {
       await brandingUpdate(m2mToken, orgId, config);
@@ -193,7 +174,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    const m2mToken = await getOrgM2MToken(orgId);
+    const m2mToken = await getBrandingToken(orgId);
     await brandingDelete(m2mToken, orgId);
     deleteBranding(orgId);
     return new NextResponse(null, { status: 204 });

@@ -830,6 +830,59 @@ export async function brandingGet(accessToken: string): Promise<BrandingConfig |
   return extractBrandingConfig(json);
 }
 
+/**
+ * An organization's ORG branding preference through the public GET the sign-in pages use (no token):
+ * <base>/o/<org-id>/api/server/v1/branding-preference[/resolve]; orgId null is the root organization.
+ * resolve false: the organization's own preference (null: it has none and inherits). resolve true: the effective
+ * one, the nearest preference up the hierarchy. Asgardeo takes that preference whole: it does not merge fields
+ * across organizations.
+ */
+export async function brandingGetPublic(orgId: string | null, resolve: boolean): Promise<BrandingConfig | null> {
+  const path = `${orgId ? `/o/${orgId}` : ""}/api/server/v1/branding-preference${resolve ? "/resolve" : ""}`;
+  const response = await fetch(`${getBaseUrl()}${path}?type=ORG&locale=en-US`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+
+  if (response.status === 404) return null;
+
+  const json = await response.json().catch(() => ({})) as Record<string, unknown>;
+
+  if (!response.ok) {
+    const message =
+      typeof json?.description === "string" ? json.description :
+      typeof json?.message === "string" ? json.message :
+      "Failed to fetch branding preference.";
+    clientLogger.error({ orgId, resolve, responseBody: json, statusCode: response.status }, "brandingGetPublic failed");
+    throw new Error(message);
+  }
+
+  return extractBrandingConfig(json);
+}
+
+/** Fields compared between an organization's branding and its parent's (the display name is per organization). */
+export const INHERITABLE_BRANDING_FIELDS = [
+  "logoUrl",
+  "faviconUrl",
+  "primaryColor",
+  "secondaryColor",
+  "textPrimaryColor",
+  "fontFamily",
+  "supportEmail",
+] as const;
+
+export type InheritableBrandingField = (typeof INHERITABLE_BRANDING_FIELDS)[number];
+
+/**
+ * The fields of an organization's own branding that differ from its parent's effective branding. An empty own
+ * value differs too: with a preference of its own, the organization gets nothing from the parent.
+ */
+export function brandingOverrides(own: BrandingConfig, parent: BrandingConfig | null): InheritableBrandingField[] {
+  const normalize = (value: string | undefined) => (value ?? "").trim().toLowerCase();
+
+  return INHERITABLE_BRANDING_FIELDS.filter((field) => normalize(own[field]) !== normalize(parent?.[field]));
+}
+
 export async function brandingCreate(
   accessToken: string,
   orgId: string,
@@ -923,4 +976,100 @@ export async function scimAssignRoleToUser(accessToken: string, roleId: string, 
     const message = typeof json?.detail === "string" ? json.detail : "Failed to assign role to user.";
     throw new Error(message);
   }
+}
+
+export interface OrganizationSummary {
+  id: string;
+  name: string;
+  status: string;
+  orgHandle?: string;
+}
+
+export interface OrganizationDetail extends OrganizationSummary {
+  parentId: string | null;
+}
+
+function organizationErrorMessage(json: Record<string, unknown>, fallback: string): string {
+  return typeof json?.description === "string" ? json.description :
+    typeof json?.message === "string" ? json.message :
+    fallback;
+}
+
+function toOrganizationSummary(json: Record<string, unknown>): OrganizationSummary {
+  return {
+    id: typeof json.id === "string" ? json.id : "",
+    name: typeof json.name === "string" ? json.name : "",
+    status: typeof json.status === "string" ? json.status : "",
+    ...(typeof json.orgHandle === "string" ? { orgHandle: json.orgHandle } : {}),
+  };
+}
+
+/** The direct child organizations of the token's organization (organization-level API). */
+export async function orgListChildren(accessToken: string): Promise<OrganizationSummary[]> {
+  const response = await fetch(`${getBaseUrl()}/o/api/server/v1/organizations?limit=100`, {
+    method: "GET",
+    headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
+  });
+
+  const json = await response.json().catch(() => ({})) as Record<string, unknown>;
+
+  if (!response.ok) {
+    clientLogger.error({ responseBody: json, statusCode: response.status }, "orgListChildren failed");
+    throw new Error(organizationErrorMessage(json, "Failed to fetch child organizations."));
+  }
+
+  const organizations = Array.isArray(json?.organizations) ? json.organizations as Array<Record<string, unknown>> : [];
+  return organizations.map(toOrganizationSummary);
+}
+
+/**
+ * Creates a child organization of the token's organization (organization-level API). parentId must be that
+ * organization: Asgardeo refuses any other parent.
+ */
+export async function orgCreateChild(
+  accessToken: string,
+  { name, parentId, orgHandle }: { name: string; parentId: string; orgHandle?: string }
+): Promise<OrganizationSummary> {
+  const response = await fetch(`${getBaseUrl()}/o/api/server/v1/organizations`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      description: `Workspace for ${name}`,
+      name,
+      ...(orgHandle ? { orgHandle } : {}),
+      parentId,
+      type: "TENANT",
+    }),
+  });
+
+  const json = await response.json().catch(() => ({})) as Record<string, unknown>;
+
+  if (!response.ok) {
+    clientLogger.error({ responseBody: json, statusCode: response.status }, "orgCreateChild failed");
+    throw new Error(organizationErrorMessage(json, "Failed to create the organization."));
+  }
+
+  return toOrganizationSummary(json);
+}
+
+/** Any organization under the root, with its parent (root-level API, root organization token). */
+export async function orgGet(accessToken: string, orgId: string): Promise<OrganizationDetail> {
+  const response = await fetch(`${getBaseUrl()}/api/server/v1/organizations/${encodeURIComponent(orgId)}`, {
+    method: "GET",
+    headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
+  });
+
+  const json = await response.json().catch(() => ({})) as Record<string, unknown>;
+
+  if (!response.ok) {
+    clientLogger.error({ orgId, responseBody: json, statusCode: response.status }, "orgGet failed");
+    throw new Error(organizationErrorMessage(json, "Failed to fetch the organization."));
+  }
+
+  const parent = json?.parent as Record<string, unknown> | undefined;
+  return { ...toOrganizationSummary(json), parentId: typeof parent?.id === "string" ? parent.id : null };
 }

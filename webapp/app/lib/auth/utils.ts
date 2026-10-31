@@ -22,6 +22,8 @@ export enum Scope {
   IDP_DELETE = "internal_org_idp_delete",
   APP_MGT_VIEW = "internal_org_application_mgt_view",
   APP_MGT_UPDATE = "internal_org_application_mgt_update",
+  ORG_VIEW = "internal_org_organization_view",
+  ORG_CREATE = "internal_org_organization_create",
   UPGRADE_VIEW = "view_upgrade",
   UPGRADE_CREATE = "create_upgrade",
   UPGRADE_UPDATE = "update_upgrade",

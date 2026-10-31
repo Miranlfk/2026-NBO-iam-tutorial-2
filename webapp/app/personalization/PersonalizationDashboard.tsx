@@ -30,6 +30,29 @@ const DEFAULTS: BrandingConfig = {
   supportEmail: "",
 };
 
+type InheritableField = "logoUrl" | "faviconUrl" | "primaryColor" | "secondaryColor" | "textPrimaryColor" | "fontFamily" | "supportEmail";
+
+/** GET /api/organization/branding/inheritance: own vs inherited sign-in branding (see lib/asgardeo/branding-inheritance). */
+interface BrandingInheritance {
+  source: "own" | "inherited" | "default";
+  parent: { id: string; name: string } | null;
+  /** The parent's effective branding. */
+  branding: BrandingConfig | null;
+  own: BrandingConfig | null;
+  effective: BrandingConfig | null;
+  overrides: InheritableField[];
+}
+
+const INHERITABLE_FIELDS: { key: InheritableField; label: string; kind: "color" | "image" | "text" }[] = [
+  { key: "logoUrl", label: "Logo", kind: "image" },
+  { key: "faviconUrl", label: "Favicon", kind: "image" },
+  { key: "primaryColor", label: "Primary color", kind: "color" },
+  { key: "secondaryColor", label: "Secondary color", kind: "color" },
+  { key: "textPrimaryColor", label: "Text color", kind: "color" },
+  { key: "fontFamily", label: "Font", kind: "text" },
+  { key: "supportEmail", label: "Support email", kind: "text" },
+];
+
 const FONT_OPTIONS = [
   { family: "Inter", importUrl: "https://fonts.googleapis.com/css?family=Inter" },
   { family: "Roboto", importUrl: "https://fonts.googleapis.com/css?family=Roboto" },
@@ -109,6 +132,137 @@ function ColorField({
   );
 }
 
+
+function BrandingValue({ kind, value }: { kind: "color" | "image" | "text"; value: string | undefined }) {
+  if (!value) return <span className="cell-muted">Not set</span>;
+
+  if (kind === "color") {
+    return (
+      <span style={{ alignItems: "center", display: "inline-flex", gap: "8px" }}>
+        <span style={{ background: value, border: "1px solid var(--app-border)", borderRadius: "4px", height: "16px", width: "16px" }} />
+        <span className="color-hex">{value.toUpperCase()}</span>
+      </span>
+    );
+  }
+
+  if (kind === "image") {
+    return (
+      <span style={{ alignItems: "center", display: "inline-flex", gap: "8px", minWidth: 0 }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img alt="" src={value} style={{ height: "22px", maxWidth: "64px", objectFit: "contain" }} />
+        <span className="cell-muted" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={value}>
+          {value.replace(/^https?:\/\//, "")}
+        </span>
+      </span>
+    );
+  }
+
+  return <span>{value}</span>;
+}
+
+const INHERITANCE_BADGES = {
+  overrides: { label: "Overrides", background: "var(--app-primary-soft)", color: "var(--app-primary)" },
+  same: { label: "Same as parent", background: "#f1f5f9", color: "var(--app-muted)" },
+  inherited: { label: "Inherited", background: "var(--app-success-bg)", color: "var(--app-success)" },
+};
+
+function BrandingInheritancePanel({
+  data,
+  error,
+  isLoading,
+  onRetry,
+}: {
+  data: BrandingInheritance | null;
+  error: string | null;
+  isLoading: boolean;
+  onRetry: () => void;
+}) {
+  const parentName = data?.parent?.name ?? "the parent organization";
+  const sourceLabel = data?.source === "own" ? "Own branding" : data?.source === "inherited" ? "Inherited" : "Default theme";
+
+  return (
+    <section className="workspace-panel">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Sign-in branding</p>
+          <h2>Own or inherited</h2>
+        </div>
+        {data && (
+          <em
+            className="status-badge"
+            style={{
+              background: data.source === "own" ? "var(--app-primary-soft)" : "var(--app-success-bg)",
+              color: data.source === "own" ? "var(--app-primary)" : "var(--app-success)",
+            }}
+          >
+            {sourceLabel}
+          </em>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div className="skeleton-block" style={{ height: "64px", marginTop: "14px" }} />
+      ) : error || !data ? (
+        <div style={{ alignItems: "center", display: "flex", gap: "12px", marginTop: "12px" }}>
+          <p style={{ margin: 0, color: "var(--app-muted)" }}>{error ?? "Failed to load branding inheritance."}</p>
+          <button className="button button-secondary" onClick={onRetry} type="button">
+            Retry
+          </button>
+        </div>
+      ) : (
+        <>
+          <p style={{ color: "var(--app-muted)", lineHeight: 1.6, margin: "10px 0 0" }}>
+            {data.source === "own" && data.parent && (
+              <>
+                This workspace has its own branding. <strong>{data.overrides.length}</strong> of {INHERITABLE_FIELDS.length}{" "}
+                fields override <strong>{parentName}</strong>; the others match it. When you save, an empty logo or
+                favicon is copied from {parentName}: the sign-in page uses one branding preference as a whole.
+              </>
+            )}
+            {data.source === "own" && !data.parent && "This organization has its own branding; it has no parent organization."}
+            {data.source === "inherited" && (
+              <>
+                This workspace has no branding of its own: its sign-in page uses <strong>{parentName}</strong>&apos;s
+                branding. Saving branding here gives it its own.
+              </>
+            )}
+            {data.source === "default" && "Neither this workspace nor the organizations above it have branding: the default theme applies."}
+          </p>
+
+          {data.source !== "default" && (
+            <div className="org-user-table" role="table" aria-label="Branding inheritance">
+              <div className="org-user-table-head" role="row" style={{ gridTemplateColumns: "0.9fr 1.4fr 1.4fr auto" }}>
+                <span>Field</span>
+                <span>This workspace</span>
+                <span>{data.parent ? data.parent.name : "Parent"}</span>
+                <span>Status</span>
+              </div>
+              {INHERITABLE_FIELDS.map((field) => {
+                const badge = data.source === "inherited"
+                  ? INHERITANCE_BADGES.inherited
+                  : data.overrides.includes(field.key)
+                  ? INHERITANCE_BADGES.overrides
+                  : INHERITANCE_BADGES.same;
+                const value = (data.own ?? data.effective)?.[field.key];
+
+                return (
+                  <div className="org-user-table-row" key={field.key} role="row" style={{ gridTemplateColumns: "0.9fr 1.4fr 1.4fr auto" }}>
+                    <strong>{field.label}</strong>
+                    <BrandingValue kind={field.kind} value={value} />
+                    <BrandingValue kind={field.kind} value={data.branding?.[field.key]} />
+                    <em className="status-badge" style={{ background: badge.background, color: badge.color }}>
+                      {badge.label}
+                    </em>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
 
 interface UpgradeWallProps {
   requiredTier: Tier.BASIC | Tier.ADVANCED;
@@ -382,6 +536,11 @@ export default function PersonalizationDashboard({ roles }: { roles: UserRole[] 
 
   const [activeTab, setActiveTab] = useState<"basic" | "advanced">("basic");
 
+  const [inheritance, setInheritance] = useState<BrandingInheritance | null>(null);
+  const [inheritanceLoading, setInheritanceLoading] = useState(true);
+  const [inheritanceError, setInheritanceError] = useState<string | null>(null);
+  const [inheritanceRetryKey, setInheritanceRetryKey] = useState(0);
+
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isAdmin = roles.includes(UserRole.ADMIN);
@@ -432,6 +591,34 @@ export default function PersonalizationDashboard({ roles }: { roles: UserRole[] 
       .finally(() => setIsLoading(false));
     return () => controller.abort();
   }, [accessToken, brandingRetryKey]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    const controller = new AbortController();
+    setInheritanceLoading(true);
+    setInheritanceError(null);
+    fetch("/api/organization/branding/inheritance", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
+    })
+      .then((res) => res.json())
+      .then((data: BrandingInheritance & { error?: string }) => {
+        if (data.error) {
+          setInheritanceError(data.error);
+        } else {
+          setInheritance(data);
+        }
+      })
+      .catch((err) => {
+        if (err instanceof Error && err.name !== "AbortError") {
+          setInheritanceError("Failed to load branding inheritance.");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setInheritanceLoading(false);
+      });
+    return () => controller.abort();
+  }, [accessToken, inheritanceRetryKey]);
 
   async function handleUpgrade(requiredTier: Tier) {
     if (!accessToken) return;
@@ -557,6 +744,13 @@ export default function PersonalizationDashboard({ roles }: { roles: UserRole[] 
           </p>
         </div>
       </section>
+
+      <BrandingInheritancePanel
+        data={inheritance}
+        error={inheritanceError}
+        isLoading={inheritanceLoading}
+        onRetry={() => setInheritanceRetryKey((k) => k + 1)}
+      />
 
       {isTierLoading ? (
         <SkeletonLoader />
@@ -841,7 +1035,10 @@ export default function PersonalizationDashboard({ roles }: { roles: UserRole[] 
                             value={form.logoUrl}
                             onChange={(e) => setField("logoUrl")(e.target.value)}
                           />
-                          <p className="field-hint">Your organization&apos;s logo. PNG or SVG recommended.</p>
+                          <p className="field-hint">
+                            Your organization&apos;s logo. PNG or SVG recommended.
+                            {inheritance?.parent && ` Leave empty to use ${inheritance.parent.name}'s logo.`}
+                          </p>
                         </div>
 
                         <div className="branding-field">
