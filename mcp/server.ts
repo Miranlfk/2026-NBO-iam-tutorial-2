@@ -70,6 +70,9 @@ function loadEnvFile(filePath: string) {
 
 const webappDir = resolve(__dirname, "../webapp");
 
+// Configuration comes from the environment. For local development, values missing
+// there are filled from mcp/.env and then ../webapp/.env.local when those files
+// exist; the container image has neither.
 loadEnvFile(resolve(__dirname, ".env"));
 loadEnvFile(resolve(webappDir, ".env.local"));
 
@@ -135,18 +138,20 @@ let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
 
 function getJwks() {
     if (!jwks) {
-        // NEXT_PUBLIC_BASE_URL is the name the webapp uses (see app/lib/auth/guard.ts);
+        // ASGARDEO_BASE_URL is the MCP server's own setting (the AI agent uses the same
+        // name); NEXT_PUBLIC_BASE_URL is the webapp's name (see app/lib/auth/guard.ts) and
         // NEXT_PUBLIC_ASGARDEO_BASE_URL is kept as a fallback for existing setups.
         const baseUrl = (
-            process.env.NEXT_PUBLIC_BASE_URL
+            process.env.ASGARDEO_BASE_URL
+            || process.env.NEXT_PUBLIC_BASE_URL
             || process.env.NEXT_PUBLIC_ASGARDEO_BASE_URL
             || ""
-        ).replace(/\/$/, "");
+        ).trim().replace(/\/$/, "");
 
         if (!baseUrl) {
             throw new Error(
-                "NEXT_PUBLIC_BASE_URL is not set, so access tokens cannot be verified. "
-                + "Set it in mcp/.env or webapp/.env.local."
+                "ASGARDEO_BASE_URL is not set, so access tokens cannot be verified. "
+                + "Set it in the environment (or mcp/.env for local development)."
             );
         }
 
