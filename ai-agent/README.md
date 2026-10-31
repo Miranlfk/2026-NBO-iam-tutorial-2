@@ -73,6 +73,15 @@ The health endpoint is available at:
 http://localhost:8791/health
 ```
 
+### Container Image
+
+```bash
+docker build -t wayfinder-enterprise-agent .
+```
+
+The image is configured from the environment only, listens on `0.0.0.0:8791`, logs to stdout (`AGENT_LOG_FILE=off`),
+and answers `GET /health` once the agent has signed in to Asgardeo. See [../deploy/README.md](../deploy/README.md).
+
 ## B2B Tool Flow
 
 The Next.js workspace includes a chat widget that connects to this agent only after the user signs in. The widget sends the user's access token during the WebSocket handshake. The agent extracts the token, reads its `org_id`, and uses that organization for the current chat.
