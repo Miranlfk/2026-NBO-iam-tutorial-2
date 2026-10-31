@@ -30,3 +30,13 @@ http://localhost:8001/mcp
 ```
 
 The AI agent forwards its Asgardeo agent token to this server. The MCP server verifies that token itself (signature, org_id, scopes) and calls the webapp's service functions (DB queries, Asgardeo SCIM client) directly, instead of going through the Next.js API routes over REST.
+
+## Container Image
+
+The server imports `../webapp/app/lib`, so the image builds from the repository root:
+
+```bash
+docker build -f mcp/Dockerfile -t wayfinder-enterprise-mcp .
+```
+
+It is configured from the environment only (`ASGARDEO_BASE_URL`, `DB_PATH`, see `.env.example`), listens on port 8001, and answers `GET /health`. Mount the webapp's SQLite volume at `/data`. See [../deploy/README.md](../deploy/README.md).

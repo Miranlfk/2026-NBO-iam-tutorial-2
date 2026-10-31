@@ -1,0 +1,22 @@
+# Applies to builds whose context is the repository root (mcp/Dockerfile).
+# webapp/ and ai-agent/ have their own .dockerignore for their own contexts.
+.git
+assets
+**/node_modules
+**/.next
+**/out
+**/dist
+**/data
+**/logs
+**/*.log
+**/*.sqlite
+**/*.sqlite-*
+**/*.db
+**/*.db-*
+**/.env
+**/.env.*
+!**/.env*.example
+**/.DS_Store
+**/tsconfig.tsbuildinfo
+env-backups
+deploy
