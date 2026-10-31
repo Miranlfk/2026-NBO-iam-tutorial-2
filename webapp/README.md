@@ -38,6 +38,8 @@ Then open `.env.local` and fill in the values for your WSO2 Identity Server / As
 
 The `NEXT_PUBLIC_SCOPES` and `ROOT_SCOPES` values in `.env.example` are pre-configured with the scopes required by the app. Update them only if you change the feature set.
 
+The `NEXT_PUBLIC_` values are read by the server at runtime and handed to the browser with each page (see `app/lib/config/public.ts`), so changing one needs a restart, not a rebuild.
+
 Optionally, set `DB_PATH` to a custom SQLite file location (defaults to `data/app.db`).
 
 ### 3. Start the development server
@@ -81,3 +83,16 @@ npm run db:drop
 ```
 
 The script reads `DB_PATH` from your environment (same as the app). If `DB_PATH` is not set, it removes the entire `data/` folder. If `DB_PATH` points to a custom location, only that file is deleted. After dropping, re-run `npm run seed:flights` to recreate the database.
+
+### Container image
+
+`Dockerfile` builds the standalone Next.js server (build context: this folder):
+
+```bash
+docker build -t wayfinder-enterprise-webapp .
+```
+
+The image holds no environment-specific values: pass the variables above at runtime. It listens on port 3000,
+keeps the SQLite database at `DB_PATH` (default `/data/app.db`, mount a volume there), seeds the flight catalog on
+start unless `SEED_FLIGHTS=false`, and answers `GET /api/health`. See [../deploy/README.md](../deploy/README.md) for
+the Compose setup with the MCP server and the AI agent.
