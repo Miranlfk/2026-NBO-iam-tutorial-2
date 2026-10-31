@@ -3,6 +3,8 @@ import { Inter } from "next/font/google";
 import { headers } from "next/headers";
 import { AuthProvider } from "./lib/auth/client";
 import { BrandingProvider } from "./lib/branding/BrandingProvider";
+import { readPublicConfigFromEnv } from "./lib/config/public";
+import { RuntimeConfigProvider } from "./lib/config/RuntimeConfigProvider";
 import "./globals.css";
 
 const inter = Inter({
@@ -40,11 +42,13 @@ export default async function RootLayout({
   return (
     <html lang="en" className={inter.className}>
       <body suppressHydrationWarning>
-        <AuthProvider initialIsExchanging={hasCode || hasOrgId || hasSubjectToken}>
-          <BrandingProvider>
-            {children}
-          </BrandingProvider>
-        </AuthProvider>
+        <RuntimeConfigProvider config={readPublicConfigFromEnv()}>
+          <AuthProvider initialIsExchanging={hasCode || hasOrgId || hasSubjectToken}>
+            <BrandingProvider>
+              {children}
+            </BrandingProvider>
+          </AuthProvider>
+        </RuntimeConfigProvider>
       </body>
     </html>
   );

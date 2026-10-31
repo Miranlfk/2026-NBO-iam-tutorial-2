@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import WorkspaceShell from "../WorkspaceShell";
 import { useAuth } from "../lib/auth/client";
+import { publicConfig } from "../lib/config/public";
 import { Tier, UserRole } from "../lib/auth/utils";
 
 interface IdpConfig {
@@ -28,8 +29,6 @@ const EMPTY_FORM: IdpConfig = {
   logoutEndpoint: "",
   jwksUri: "",
 };
-
-const UPGRADE_WAIT_MS = Number(process.env.NEXT_PUBLIC_UPGRADE_WAIT_MS ?? 5000);
 
 function LockIcon() {
   return (
@@ -328,7 +327,7 @@ export default function EnterpriseIdpDashboard({ roles }: { roles: UserRole[] })
 
       setIsUpgrading(false);
       setUpgradeWaiting(true);
-      await new Promise<void>((resolve) => setTimeout(resolve, UPGRADE_WAIT_MS));
+      await new Promise<void>((resolve) => setTimeout(resolve, publicConfig().upgradeWaitMs));
       setUpgradeWaiting(false);
       setShowReloginPrompt(true);
     } catch {

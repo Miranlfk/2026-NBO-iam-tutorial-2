@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import LoadingScreen from "../../LoadingScreen";
+import { publicConfig } from "../config/public";
 import { buildUserFromTokens, type AppUser } from "./utils";
 
 interface SignInOptions {
@@ -10,8 +11,7 @@ interface SignInOptions {
   orgId?: string;
 }
 
-const enhancedOrgAuthEnabled =
-  (process.env.NEXT_PUBLIC_ENHANCED_ORGANIZATION_AUTHENTICATION ?? "").toLowerCase() === "true";
+const isEnhancedOrgAuthEnabled = () => publicConfig().enhancedOrganizationAuthentication;
 
 interface AuthState {
   isLoading: boolean;
@@ -71,10 +71,8 @@ function isTokenExpired(token: string): boolean {
 }
 
 function buildAuthorizeUrl(options?: SignInOptions): string {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "";
-  const clientId = process.env.NEXT_PUBLIC_CLIENT_ID ?? "";
-  const scopes = process.env.NEXT_PUBLIC_SCOPES ?? "openid";
-  const redirectUri = process.env.NEXT_PUBLIC_AFTER_SIGN_IN_URL ?? window.location.origin;
+  const { baseUrl, clientId, scopes, afterSignInUrl } = publicConfig();
+  const redirectUri = afterSignInUrl || window.location.origin;
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -83,7 +81,7 @@ function buildAuthorizeUrl(options?: SignInOptions): string {
     scope: scopes
   });
 
-  if (options?.fidp && !enhancedOrgAuthEnabled) {
+  if (options?.fidp && !isEnhancedOrgAuthEnabled()) {
     params.set("fidp", options.fidp);
   }
 
@@ -99,10 +97,8 @@ function buildAuthorizeUrl(options?: SignInOptions): string {
 }
 
 function buildImpersonateAuthorizeUrl(userId: string, orgId?: string): string {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "";
-  const clientId = process.env.NEXT_PUBLIC_CLIENT_ID ?? "";
-  const redirectUri = process.env.NEXT_PUBLIC_AFTER_SIGN_IN_URL ?? window.location.origin;
-  const configuredScopes = process.env.NEXT_PUBLIC_SCOPES ?? "openid";
+  const { baseUrl, clientId, scopes: configuredScopes, afterSignInUrl } = publicConfig();
+  const redirectUri = afterSignInUrl || window.location.origin;
   const nonce = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
 
   const scopeSet = new Set(["internal_org_user_impersonate", ...configuredScopes.split(" ").filter(Boolean)]);
@@ -118,7 +114,7 @@ function buildImpersonateAuthorizeUrl(userId: string, orgId?: string): string {
     orgId: orgId ?? "",
   });
 
-  if (!enhancedOrgAuthEnabled) {
+  if (!isEnhancedOrgAuthEnabled()) {
     params.set("fidp", "OrganizationSSO");
   }
 
@@ -157,7 +153,7 @@ export function AuthProvider({ children, initialIsExchanging = false }: { childr
     setImpersonatedUserName(null);
 
     if (orgId) {
-      const afterSignInUrl = process.env.NEXT_PUBLIC_AFTER_SIGN_IN_URL ?? window.location.origin;
+      const afterSignInUrl = publicConfig().afterSignInUrl || window.location.origin;
       const redirectUrl = new URL(afterSignInUrl);
       redirectUrl.searchParams.set("orgId", orgId);
       window.location.replace(redirectUrl.toString());
@@ -358,9 +354,8 @@ export function AuthProvider({ children, initialIsExchanging = false }: { childr
     setImpersonationToken(null);
     setImpersonatedUserName(null);
 
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "";
-    const clientId = process.env.NEXT_PUBLIC_CLIENT_ID ?? "";
-    const redirectUri = process.env.NEXT_PUBLIC_AFTER_SIGN_OUT_URL ?? window.location.origin;
+    const { baseUrl, clientId, afterSignOutUrl } = publicConfig();
+    const redirectUri = afterSignOutUrl || window.location.origin;
 
     if (currentIdToken && baseUrl && clientId) {
       const form = document.createElement("form");

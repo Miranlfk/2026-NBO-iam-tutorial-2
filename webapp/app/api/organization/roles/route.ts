@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireScope } from "../../../lib/auth/guard";
-import { ASGARDEO_ROLE_TO_USER_ROLE, Scope } from "../../../lib/auth/utils";
+import { getAsgardeoRoleToUserRole, Scope } from "../../../lib/auth/utils";
 import { scimListRolesWithUsers } from "../../../lib/asgardeo/client";
 import { logger } from "../../../lib/logging/logger";
 import { logRequestActor } from "../../../lib/auth/log";
@@ -15,10 +15,11 @@ export async function GET(request: NextRequest) {
   try {
     const accessToken = request.headers.get("authorization")!.slice(7);
     const asgardeoRoles = await scimListRolesWithUsers(accessToken);
+    const roleMap = getAsgardeoRoleToUserRole();
 
     const roles = asgardeoRoles
       .map((r) => {
-        const userRole = ASGARDEO_ROLE_TO_USER_ROLE[r.displayName];
+        const userRole = roleMap[r.displayName];
         if (!userRole) return null;
         return {
           id: r.id,

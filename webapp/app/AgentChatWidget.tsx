@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useAuth } from "./lib/auth/client";
+import { publicConfig } from "./lib/config/public";
 
 type ChatRole = "user" | "assistant" | "system";
 type ConnectionStatus = "connecting" | "connected" | "disconnected";
@@ -20,36 +21,19 @@ interface AgentPayload {
   message?: string;
 }
 
-const AGENT_CHAT_URL = process.env.NEXT_PUBLIC_AGENT_CHAT_URL || "ws://localhost:8791/chat";
-const AGENT_HTTP_BASE_URL = process.env.NEXT_PUBLIC_AGENT_HTTP_BASE_URL || toHttpBaseUrl(AGENT_CHAT_URL);
-
-// Orgs the web chat agent is hidden from (name or org ID).
-const CHAT_AGENT_HIDDEN_ORGS = new Set(
-  (process.env.NEXT_PUBLIC_AGENT_CHAT_HIDDEN_ORGS ?? "")
-    .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean)
-);
-
 function isChatAgentSharedWith(user: { orgId?: string; orgName?: string } | null) {
-  return !(
-    CHAT_AGENT_HIDDEN_ORGS.has((user?.orgName ?? "").toLowerCase()) ||
-    CHAT_AGENT_HIDDEN_ORGS.has((user?.orgId ?? "").toLowerCase())
+  // Orgs the web chat agent is hidden from (name or org ID).
+  const hiddenOrgs = new Set(
+    publicConfig().agentChatHiddenOrgs
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean)
   );
-}
 
-function toHttpBaseUrl(url: string) {
-  try {
-    const parsed = new URL(url);
-    parsed.protocol = parsed.protocol === "wss:" ? "https:" : "http:";
-    parsed.pathname = "";
-    parsed.search = "";
-    parsed.hash = "";
-
-    return parsed.toString().replace(/\/$/, "");
-  } catch {
-    return "http://localhost:8791";
-  }
+  return !(
+    hiddenOrgs.has((user?.orgName ?? "").toLowerCase()) ||
+    hiddenOrgs.has((user?.orgId ?? "").toLowerCase())
+  );
 }
 
 function createMessage(role: ChatMessage["role"], content: string): ChatMessage {
@@ -69,7 +53,7 @@ function toAgentMessages(messages: ChatMessage[]) {
 }
 
 async function fetchOboAuthorizeUrl(authorizationRequestId: string, accessToken: string) {
-  const response = await fetch(`${AGENT_HTTP_BASE_URL}/obo/authorize-url`, {
+  const response = await fetch(`${publicConfig().agentHttpBaseUrl}/obo/authorize-url`, {
     body: JSON.stringify({ authorizationRequestId }),
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -293,7 +277,7 @@ export default function AgentChatWidget() {
     }
 
     setConnectionStatus("connecting");
-    const socket = new WebSocket(AGENT_CHAT_URL, ["bearer", accessToken]);
+    const socket = new WebSocket(publicConfig().agentChatUrl, ["bearer", accessToken]);
     socketRef.current = socket;
 
     socket.addEventListener("open", () => {

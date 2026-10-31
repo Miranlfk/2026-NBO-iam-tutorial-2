@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import WorkspaceShell from "../WorkspaceShell";
 import { useAuth } from "../lib/auth/client";
+import { publicConfig } from "../lib/config/public";
 import { Tier, UserRole } from "../lib/auth/utils";
 
 interface BrandingConfig {
@@ -38,8 +39,6 @@ const FONT_OPTIONS = [
   { family: "Montserrat", importUrl: "https://fonts.googleapis.com/css?family=Montserrat" },
   { family: "Source Sans Pro", importUrl: "https://fonts.googleapis.com/css?family=Source+Sans+Pro" },
 ];
-
-const UPGRADE_WAIT_MS = Number(process.env.NEXT_PUBLIC_UPGRADE_WAIT_MS ?? 5000);
 
 function SpinnerIcon({ size = 20 }: { size?: number }) {
   return (
@@ -452,7 +451,7 @@ export default function PersonalizationDashboard({ roles }: { roles: UserRole[] 
       }
       setIsUpgrading(false);
       setUpgradeWaiting(true);
-      await new Promise<void>((resolve) => setTimeout(resolve, UPGRADE_WAIT_MS));
+      await new Promise<void>((resolve) => setTimeout(resolve, publicConfig().upgradeWaitMs));
       setUpgradeWaiting(false);
       setShowReloginPrompt(true);
     } catch {

@@ -8,18 +8,19 @@ import {
   brandingDelete,
   type BrandingConfig,
 } from "../../../lib/asgardeo/client";
+import { publicConfig } from "../../../lib/config/public";
 import { logger } from "../../../lib/logging/logger";
 import { logRequestActor } from "../../../lib/auth/log";
 
 const routeLogger = logger.child({ route: "organization/branding" });
 
-const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
-const clientId = process.env.CLIENT_ID ?? process.env.NEXT_PUBLIC_CLIENT_ID ?? "";
 const clientSecret = process.env.CLIENT_SECRET ?? "";
 
 const HEX_RE = /^#[0-9A-Fa-f]{6}$/;
 
 async function getOrgM2MToken(orgId: string): Promise<string> {
+  const { baseUrl } = publicConfig();
+  const clientId = process.env.CLIENT_ID || publicConfig().clientId;
   const rootRes = await fetch(`${baseUrl}/oauth2/token`, {
     method: "POST",
     body: new URLSearchParams({

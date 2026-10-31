@@ -1,8 +1,9 @@
+import { publicConfig } from "../config/public";
 import { logger } from "../logging/logger";
 
 const clientLogger = logger.child({ component: "asgardeo/client" });
 
-const getBaseUrl = () => (process.env.NEXT_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
+const getBaseUrl = () => publicConfig().baseUrl;
 const getUserStoreName = () => process.env.USER_STORE_NAME ?? "DEFAULT";
 
 export interface ScimUser {

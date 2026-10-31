@@ -1,3 +1,5 @@
+import { publicConfig } from "../config/public";
+
 export enum Tier {
   FREE = "FREE",
   BASIC = "BASIC",
@@ -40,27 +42,31 @@ export enum UserRole {
   ADVANCED_BRANDING_EDITOR = "Advanced Branding Editor",
 }
 
-const ROLE_NAME_ADMIN = process.env.NEXT_PUBLIC_ADMIN_ROLE_NAME ?? "WayFinder-Admin";
-const ROLE_NAME_MEMBER = process.env.NEXT_PUBLIC_MEMBER_ROLE_NAME ?? "WayFinder-Member";
-const ROLE_NAME_IDP_MANAGER = process.env.NEXT_PUBLIC_IDP_MANAGER_ROLE_NAME ?? "IdP-Manager";
-const ROLE_NAME_BASIC_BRANDING_EDITOR = process.env.NEXT_PUBLIC_BASIC_BRANDING_EDITOR_ROLE_NAME ?? "Basic-Branding-Editor";
-const ROLE_NAME_ADVANCED_BRANDING_EDITOR = process.env.NEXT_PUBLIC_ADVANCED_BRANDING_EDITOR_ROLE_NAME ?? "Advanced-Branding-Editor";
+// Role names are runtime configuration (see ../config/public.ts), so the maps are
+// built on use rather than at module load.
+export function getAsgardeoRoleToUserRole(): Record<string, UserRole> {
+  const names = publicConfig().roleNames;
 
-export const ASGARDEO_ROLE_TO_USER_ROLE: Record<string, UserRole> = {
-  [ROLE_NAME_ADMIN]: UserRole.ADMIN,
-  [ROLE_NAME_MEMBER]: UserRole.MEMBER,
-  [ROLE_NAME_IDP_MANAGER]: UserRole.IDP_MANAGER,
-  [ROLE_NAME_BASIC_BRANDING_EDITOR]: UserRole.BASIC_BRANDING_EDITOR,
-  [ROLE_NAME_ADVANCED_BRANDING_EDITOR]: UserRole.ADVANCED_BRANDING_EDITOR,
-};
+  return {
+    [names.admin]: UserRole.ADMIN,
+    [names.member]: UserRole.MEMBER,
+    [names.idpManager]: UserRole.IDP_MANAGER,
+    [names.basicBrandingEditor]: UserRole.BASIC_BRANDING_EDITOR,
+    [names.advancedBrandingEditor]: UserRole.ADVANCED_BRANDING_EDITOR,
+  };
+}
 
-export const USER_ROLE_TO_ASGARDEO_ROLE: Record<UserRole, string> = {
-  [UserRole.ADMIN]: ROLE_NAME_ADMIN,
-  [UserRole.MEMBER]: ROLE_NAME_MEMBER,
-  [UserRole.IDP_MANAGER]: ROLE_NAME_IDP_MANAGER,
-  [UserRole.BASIC_BRANDING_EDITOR]: ROLE_NAME_BASIC_BRANDING_EDITOR,
-  [UserRole.ADVANCED_BRANDING_EDITOR]: ROLE_NAME_ADVANCED_BRANDING_EDITOR,
-};
+export function getUserRoleToAsgardeoRole(): Record<UserRole, string> {
+  const names = publicConfig().roleNames;
+
+  return {
+    [UserRole.ADMIN]: names.admin,
+    [UserRole.MEMBER]: names.member,
+    [UserRole.IDP_MANAGER]: names.idpManager,
+    [UserRole.BASIC_BRANDING_EDITOR]: names.basicBrandingEditor,
+    [UserRole.ADVANCED_BRANDING_EDITOR]: names.advancedBrandingEditor,
+  };
+}
 
 export interface AppUser {
   email: string;
@@ -72,8 +78,9 @@ export interface AppUser {
 }
 
 export function getRolesFromPermissions(permissions: string[]): UserRole[] {
+  const roleMap = getAsgardeoRoleToUserRole();
   const roles = permissions
-    .map((perm) => ASGARDEO_ROLE_TO_USER_ROLE[perm])
+    .map((perm) => roleMap[perm])
     .filter(Boolean) as UserRole[];
   return roles.length > 0 ? roles : [UserRole.MEMBER];
 }

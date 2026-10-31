@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicConfig } from "../../../lib/config/public";
 
 type TokenResponse = {
   access_token?: string;
@@ -20,8 +21,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-    const clientId = process.env.NEXT_PUBLIC_CLIENT_ID;
+    const { baseUrl, clientId } = publicConfig();
     const clientSecret = process.env.CLIENT_SECRET;
 
     if (!baseUrl || !clientId || !clientSecret) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireScope } from "../../../lib/auth/guard";
-import { Scope, USER_ROLE_TO_ASGARDEO_ROLE, UserRole } from "../../../lib/auth/utils";
+import { getUserRoleToAsgardeoRole, Scope, UserRole } from "../../../lib/auth/utils";
 import { scimAssignRoleToUser, scimCreateUser, scimFetchRoleIdByName, scimListUsers } from "../../../lib/asgardeo/client";
 import { logger } from "../../../lib/logging/logger";
 import { logRequestActor } from "../../../lib/auth/log";
@@ -15,7 +15,7 @@ type InviteRequest = {
 };
 
 function resolveAsgardeoRoleName(uiRole: string): string {
-  return USER_ROLE_TO_ASGARDEO_ROLE[uiRole as UserRole] ?? uiRole;
+  return getUserRoleToAsgardeoRole()[uiRole as UserRole] ?? uiRole;
 }
 
 export async function GET(request: NextRequest) {

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useAuth } from "../lib/auth/client";
+import { publicConfig } from "../lib/config/public";
 import LoadingScreen, { LoadingStep } from "../LoadingScreen";
 import PlanSelection from "./PlanSelection";
 
@@ -30,9 +31,6 @@ type FormErrors = Partial<Record<keyof FormState, string>>;
 
 const ONBOARDING_ERROR_MESSAGE = "We couldn't create your organization right now. Please try again in a moment.";
 
-const orgHandleSupported =
-  (process.env.NEXT_PUBLIC_ORGANIZATION_HANDLE_SUPPORTED ?? "").toLowerCase() === "true";
-
 const FIELD_LABELS: Record<keyof FormState, string> = {
   email: "Work email",
   familyName: "Last name",
@@ -51,7 +49,7 @@ const initialForm: FormState = {
   password: ""
 };
 
-function validate(form: FormState): FormErrors {
+function validate(form: FormState, orgHandleSupported: boolean): FormErrors {
   const errors: FormErrors = {};
 
   for (const key of Object.keys(form) as (keyof FormState)[]) {
@@ -77,6 +75,7 @@ type Phase = "form" | "plan" | "submitting";
 
 export default function OnboardingForm() {
   const { switchOrganization } = useAuth();
+  const orgHandleSupported = publicConfig().organizationHandleSupported;
   const [form, setForm] = useState<FormState>(initialForm);
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitError, setSubmitError] = useState("");
@@ -100,7 +99,7 @@ export default function OnboardingForm() {
   function handleSubmit(event: { preventDefault(): void }) {
     event.preventDefault();
 
-    const validationErrors = validate(form);
+    const validationErrors = validate(form, orgHandleSupported);
     setErrors(validationErrors);
 
     if (Object.keys(validationErrors).length > 0) {

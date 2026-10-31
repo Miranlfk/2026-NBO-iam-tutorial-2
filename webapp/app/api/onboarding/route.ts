@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicConfig } from "../../lib/config/public";
 import { logger } from "../../lib/logging/logger";
 
 const routeLogger = logger.child({ route: "onboarding" });
@@ -27,8 +28,6 @@ type Organization = {
 
 const ONBOARDING_ERROR_MESSAGE = "We couldn't create your organization right now. Please try again in a moment.";
 
-const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-const clientId = process.env.CLIENT_ID ?? process.env.NEXT_PUBLIC_CLIENT_ID;
 const clientSecret = process.env.CLIENT_SECRET ?? process.env.NEXT_PUBLIC_CLIENT_SECRET;
 const parentOrganizationId = process.env.PARENT_ORGANIZATION_ID;
 const rootTokenScopes =
@@ -37,11 +36,8 @@ const rootTokenScopes =
 const organizationTokenScopes =
   process.env.ORG_SCOPES ??
   "internal_org_user_mgt_create internal_org_user_mgt_list internal_org_role_mgt_view internal_org_role_mgt_update";
-const orgHandleSupported = (process.env.NEXT_PUBLIC_ORGANIZATION_HANDLE_SUPPORTED ?? "").toLowerCase() === "true";
 const userStoreName = process.env.USER_STORE_NAME ?? "DEFAULT";
 const userStoreId = Buffer.from(userStoreName).toString("base64").replace(/=+$/, "");
-const adminRoleName = process.env.NEXT_PUBLIC_ADMIN_ROLE_NAME ?? "WayFinder-Admin";
-const memberRoleName = process.env.NEXT_PUBLIC_MEMBER_ROLE_NAME ?? "WayFinder-Member";
 const pollInterval = Number(process.env.POLL_INTERVAL_MS ?? 1500);
 const orgReadyTimeout = Number(process.env.USERSTORE_TIMEOUT_MS ?? 30000);
 const userCreationRetryTimeout = Number(process.env.USER_CREATION_RETRY_TIMEOUT_MS ?? 30000);
@@ -57,6 +53,9 @@ function sleep(ms: number) {
 }
 
 function getConfig() {
+  const { baseUrl } = publicConfig();
+  const clientId = process.env.CLIENT_ID || publicConfig().clientId;
+
   if (!baseUrl || !clientId || !clientSecret) {
     throw new Error("Workspace setup is missing required server configuration.");
   }
@@ -341,6 +340,7 @@ async function waitForUserStore(accessToken: string) {
 
 export async function POST(request: Request) {
   try {
+    const { organizationHandleSupported: orgHandleSupported, roleNames } = publicConfig();
     const payload = (await request.json()) as OnboardingRequest;
     const email = asText(payload.email).toLowerCase();
     const familyName = asText(payload.familyName);
@@ -388,8 +388,8 @@ export async function POST(request: Request) {
     });
 
     const [adminRoleId, memberRoleId] = await Promise.all([
-      fetchRoleIdByName(organizationAccessToken, adminRoleName),
-      fetchRoleIdByName(organizationAccessToken, memberRoleName)
+      fetchRoleIdByName(organizationAccessToken, roleNames.admin),
+      fetchRoleIdByName(organizationAccessToken, roleNames.member)
     ]);
 
     await Promise.all([

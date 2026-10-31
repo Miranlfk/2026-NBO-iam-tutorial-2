@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicConfig } from "../../../lib/config/public";
 import { logger } from "../../../lib/logging/logger";
 
 const routeLogger = logger.child({ route: "auth/token" });
@@ -18,10 +19,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Authorization code is required." }, { status: 400 });
     }
 
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-    const clientId = process.env.NEXT_PUBLIC_CLIENT_ID;
+    const { baseUrl, clientId, afterSignInUrl: redirectUri } = publicConfig();
     const clientSecret = process.env.CLIENT_SECRET;
-    const redirectUri = process.env.NEXT_PUBLIC_AFTER_SIGN_IN_URL;
 
     if (!baseUrl || !clientId || !clientSecret || !redirectUri) {
       return NextResponse.json({ error: "Server auth configuration is incomplete." }, { status: 500 });

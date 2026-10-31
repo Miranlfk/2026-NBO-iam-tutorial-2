@@ -3,28 +3,21 @@ import { requireScope } from "../../../lib/auth/guard";
 import { Scope, Tier } from "../../../lib/auth/utils";
 import { getOrgTier, upsertOrgTier } from "../../../lib/db/queries/org-tiers";
 import { shareApplicationRoles, removeApplicationRoles, scimFetchRoleIdByName, scimAssignRoleToUser } from "../../../lib/asgardeo/client";
+import { publicConfig } from "../../../lib/config/public";
 import { logger } from "../../../lib/logging/logger";
 import { logRequestActor } from "../../../lib/auth/log";
 
 const routeLogger = logger.child({ route: "organization/upgrade" });
 
-const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
-const clientId = process.env.CLIENT_ID ?? process.env.NEXT_PUBLIC_CLIENT_ID ?? "";
 const clientSecret = process.env.CLIENT_SECRET ?? "";
 const applicationId = process.env.APP_ID ?? "";
 const appDisplayName = process.env.APP_DISPLAY_NAME ?? "Wayfinder";
 const appSharingScopes = process.env.APP_SHARING_SCOPES ?? "internal_application_mgt_update";
 
-const basicBrandingEditorRole =
-  process.env.NEXT_PUBLIC_BASIC_BRANDING_EDITOR_ROLE_NAME ?? "Basic-Branding-Editor";
-const advancedBrandingEditorRole =
-  process.env.NEXT_PUBLIC_ADVANCED_BRANDING_EDITOR_ROLE_NAME ?? "Advanced-Branding-Editor";
-const idpManagerRole =
-  process.env.NEXT_PUBLIC_IDP_MANAGER_ROLE_NAME ?? "IdP-Manager";
-
 function getRolesForTier(tier: Tier): string[] {
-  if (tier === Tier.BASIC) return [basicBrandingEditorRole];
-  if (tier === Tier.ADVANCED) return [basicBrandingEditorRole, advancedBrandingEditorRole, idpManagerRole];
+  const { basicBrandingEditor, advancedBrandingEditor, idpManager } = publicConfig().roleNames;
+  if (tier === Tier.BASIC) return [basicBrandingEditor];
+  if (tier === Tier.ADVANCED) return [basicBrandingEditor, advancedBrandingEditor, idpManager];
   return [];
 }
 
@@ -42,6 +35,8 @@ async function assignRolesToAdmin(accessToken: string, adminId: string, roles: s
 }
 
 async function getRootToken(): Promise<string> {
+  const { baseUrl } = publicConfig();
+  const clientId = process.env.CLIENT_ID || publicConfig().clientId;
   const response = await fetch(`${baseUrl}/oauth2/token`, {
     method: "POST",
     body: new URLSearchParams({ grant_type: "client_credentials", scope: appSharingScopes }),
@@ -181,7 +176,8 @@ export async function DELETE(request: NextRequest) {
   if (applicationId) {
     try {
       const rootToken = await getRootToken();
-      const allRoles = [basicBrandingEditorRole, advancedBrandingEditorRole, idpManagerRole];
+      const { basicBrandingEditor, advancedBrandingEditor, idpManager } = publicConfig().roleNames;
+      const allRoles = [basicBrandingEditor, advancedBrandingEditor, idpManager];
       await removeApplicationRoles(rootToken, orgId, allRoles, applicationId, appDisplayName);
     } catch (err) {
       routeLogger.error({ err, orgId }, "Application role removal failed");

@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { NextRequest, NextResponse } from "next/server";
+import { publicConfig } from "../config/public";
 
 export interface TokenClaims {
   orgId: string;
@@ -20,8 +21,7 @@ let _jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
 
 function getJWKS() {
   if (!_jwks) {
-    const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
-    _jwks = createRemoteJWKSet(new URL(`${baseUrl}/oauth2/jwks`));
+    _jwks = createRemoteJWKSet(new URL(`${publicConfig().baseUrl}/oauth2/jwks`));
   }
   return _jwks;
 }
