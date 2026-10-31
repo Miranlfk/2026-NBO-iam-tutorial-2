@@ -261,7 +261,10 @@ export interface IdpDetail {
 }
 
 function buildIdpPayload(config: IdpConfig): Record<string, unknown> {
-  const baseUrl = getBaseUrl().replace(/\/t\/[^/]+$/, "");
+  // The federated IdP redirects back to the sub-organization's commonauth endpoint. By default it is
+  // derived from the base URL (https://<host>/t/<root>  ->  https://<host>/o/<org-id>/commonauth);
+  // ASGARDEO_IDP_CALLBACK_BASE_URL overrides the https://<host> part for deployments that differ.
+  const baseUrl = (process.env.ASGARDEO_IDP_CALLBACK_BASE_URL || getBaseUrl().replace(/\/t\/[^/]+$/, "")).replace(/\/$/, "");
   const callbackUrl = `${baseUrl}/o/${config.orgId}/commonauth`;
 
   return {
