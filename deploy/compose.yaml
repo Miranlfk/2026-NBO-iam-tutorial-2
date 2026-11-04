@@ -5,7 +5,8 @@
 #   docker compose build                       # or: docker compose build enterprise-webapp (one at a time)
 #   docker compose up -d
 #
-# URLs are derived here from .env, so a domain switch is: edit .env, `docker compose up -d`. They take precedence
+# URLs are derived here from .env (hostnames enterprise. and enterprise-agent.<APPS_DOMAIN>, or ENTERPRISE_WEBAPP_ and
+# ENTERPRISE_AGENT_PUBLIC_HOST), so a domain switch is: edit .env, `docker compose up -d`. They take precedence
 # over the env files, which hold credentials, IDs and feature settings. The images contain nothing
 # environment-specific. See README.md for the hostnames and what the proxy must route.
 name: wayfinder-enterprise
@@ -24,9 +25,9 @@ services:
     env_file: [env/enterprise-webapp.env]
     environment:
       NEXT_PUBLIC_BASE_URL: ${ASGARDEO_BASE_URL:?set ASGARDEO_BASE_URL in .env}
-      NEXT_PUBLIC_AFTER_SIGN_IN_URL: https://enterprise.${APPS_DOMAIN:?set APPS_DOMAIN in .env}
-      NEXT_PUBLIC_AFTER_SIGN_OUT_URL: https://enterprise.${APPS_DOMAIN}
-      NEXT_PUBLIC_AGENT_CHAT_URL: wss://enterprise-agent.${APPS_DOMAIN}/chat
+      NEXT_PUBLIC_AFTER_SIGN_IN_URL: https://${ENTERPRISE_WEBAPP_PUBLIC_HOST:-enterprise.${APPS_DOMAIN:?set APPS_DOMAIN in .env}}
+      NEXT_PUBLIC_AFTER_SIGN_OUT_URL: https://${ENTERPRISE_WEBAPP_PUBLIC_HOST:-enterprise.${APPS_DOMAIN}}
+      NEXT_PUBLIC_AGENT_CHAT_URL: wss://${ENTERPRISE_AGENT_PUBLIC_HOST:-enterprise-agent.${APPS_DOMAIN}}/chat
       DB_PATH: /data/app.db
     volumes:
       - enterprise-data:/data     # SQLite (WAL), shared with enterprise-mcp
@@ -67,9 +68,9 @@ services:
     env_file: [env/enterprise-agent.env]
     environment:
       ASGARDEO_BASE_URL: ${ASGARDEO_BASE_URL:?set ASGARDEO_BASE_URL in .env}
-      REDIRECT_URI: https://enterprise-agent.${APPS_DOMAIN:?set APPS_DOMAIN in .env}
-      OBO_REDIRECT_URI: https://enterprise-agent.${APPS_DOMAIN}/obo/callback
-      APP_BASE_URL: https://enterprise.${APPS_DOMAIN}
+      REDIRECT_URI: https://${ENTERPRISE_AGENT_PUBLIC_HOST:-enterprise-agent.${APPS_DOMAIN:?set APPS_DOMAIN in .env}}
+      OBO_REDIRECT_URI: https://${ENTERPRISE_AGENT_PUBLIC_HOST:-enterprise-agent.${APPS_DOMAIN}}/obo/callback
+      APP_BASE_URL: https://${ENTERPRISE_WEBAPP_PUBLIC_HOST:-enterprise.${APPS_DOMAIN}}
       MCP_SERVER_URL: http://enterprise-mcp:8001/mcp
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_TOKEN_URL: ${LLM_TOKEN_URL:-${ASGARDEO_BASE_URL}/oauth2/token}
